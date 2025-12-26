@@ -88,12 +88,16 @@ const seriesConfig = [
   },
 ];
 
-export function FinanceForecast() {
+type FinanceForecastData = {
+  chartData: typeof chartData;
+};
+
+export function FinanceForecast({ data }: { data?: FinanceForecastData }) {
   const [range, setRange] = React.useState<RangeKey>("6m");
   const [mode, setMode] = React.useState<ModeKey>("previsto");
   const [activeIndex, setActiveIndex] = React.useState<number | null>(null);
 
-  const selected = chartData[range];
+  const selected = (data?.chartData ?? chartData)[range];
   const scale = modeScale[mode];
   const receitas = selected.receitas.map((value) => Math.round(value * scale));
   const despesas = selected.despesas.map((value) => Math.round(value * scale));

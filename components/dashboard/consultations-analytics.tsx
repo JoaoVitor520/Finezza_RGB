@@ -60,12 +60,20 @@ const chartData: Record<
   },
 };
 
-export function ConsultationsAnalytics() {
+type ConsultationsAnalyticsData = {
+  chartData: typeof chartData;
+};
+
+export function ConsultationsAnalytics({
+  data,
+}: {
+  data?: ConsultationsAnalyticsData;
+}) {
   const [range, setRange] = React.useState<RangeKey>("6m");
   const [segment, setSegment] = React.useState<SegmentKey>("todos");
   const [activeIndex, setActiveIndex] = React.useState<number | null>(null);
 
-  const selected = chartData[range];
+  const selected = (data?.chartData ?? chartData)[range];
   const scale = segmentScale[segment];
   const realizadas = selected.realizadas.map((value) => Math.round(value * scale));
   const agendadas = selected.agendadas.map((value) => Math.round(value * scale));

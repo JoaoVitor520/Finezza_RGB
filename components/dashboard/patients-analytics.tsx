@@ -62,7 +62,7 @@ const chartData: Record<
   },
 };
 
-const metrics = [
+const metricConfig = [
   {
     id: "total" as const,
     label: "Total de pacientes",
@@ -106,16 +106,51 @@ const distributions = {
   ],
 };
 
-export function PatientsAnalytics() {
+type PatientsAnalyticsData = {
+  chartData: typeof chartData;
+  metrics: {
+    total: { value: number; delta: string };
+    new: { value: number; delta: string };
+    returnRate: { value: number; delta: string };
+  };
+  distributions: typeof distributions;
+  updatedAtLabel: string;
+};
+
+export function PatientsAnalytics({ data }: { data?: PatientsAnalyticsData }) {
   const [range, setRange] = React.useState<RangeKey>("6m");
   const [metric, setMetric] = React.useState<MetricKey>("total");
   const [segment, setSegment] = React.useState<SegmentKey>("geral");
   const [activeIndex, setActiveIndex] = React.useState<number | null>(null);
 
-  const selected = chartData[range];
+  const selected = (data?.chartData ?? chartData)[range];
   const scaledValues = selected[metric].map((value) =>
     Math.round(value * segmentScale[segment])
   );
+  const metrics = metricConfig.map((item) => {
+    if (!data?.metrics) return item;
+    if (item.id === "total") {
+      return {
+        ...item,
+        value: data.metrics.total.value.toLocaleString("pt-BR"),
+        delta: data.metrics.total.delta,
+      };
+    }
+    if (item.id === "new") {
+      return {
+        ...item,
+        value: data.metrics.new.value.toLocaleString("pt-BR"),
+        delta: data.metrics.new.delta,
+      };
+    }
+    return {
+      ...item,
+      value: `${data.metrics.returnRate.value}%`,
+      delta: data.metrics.returnRate.delta,
+    };
+  });
+  const distributionsData = data?.distributions ?? distributions;
+  const updatedLabel = data?.updatedAtLabel ?? "Atualizado agora";
 
   const max = Math.max(...scaledValues) * 1.1;
   const min = Math.min(...scaledValues) * 0.9;
@@ -239,7 +274,7 @@ export function PatientsAnalytics() {
                   <span className="h-2 w-2 rounded-full bg-indigo-500" />
                   <span>Volume selecionado</span>
                 </div>
-                <Badge variant="info">Atualizado agora</Badge>
+                <Badge variant="info">{updatedLabel}</Badge>
               </div>
 
               <div
@@ -320,7 +355,7 @@ export function PatientsAnalytics() {
                   <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
                     Distribuicao por idade
                   </p>
-                  {distributions.age.map((item) => (
+                  {distributionsData.age.map((item) => (
                     <div key={item.label}>
                       <div className="flex items-center justify-between text-xs text-slate-500">
                         <span>{item.label}</span>
@@ -335,7 +370,7 @@ export function PatientsAnalytics() {
                   <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
                     Distribuicao por genero
                   </p>
-                  {distributions.gender.map((item) => (
+                  {distributionsData.gender.map((item) => (
                     <div key={item.label}>
                       <div className="flex items-center justify-between text-xs text-slate-500">
                         <span>{item.label}</span>

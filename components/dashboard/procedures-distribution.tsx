@@ -61,15 +61,26 @@ const procedureData: Record<
   ],
 };
 
-export function ProceduresDistribution() {
+type ProceduresDistributionData = {
+  data: typeof procedureData;
+  note: string;
+};
+
+export function ProceduresDistribution({
+  data,
+}: {
+  data?: ProceduresDistributionData;
+}) {
   const [period, setPeriod] = React.useState<PeriodKey>("mes");
   const [category, setCategory] = React.useState<CategoryKey>("todos");
 
   const scale = periodScale[period];
-  const items = procedureData[category].map((item) => ({
+  const source = data?.data ?? procedureData;
+  const items = source[category].map((item) => ({
     ...item,
     value: Math.round(item.value * scale),
   }));
+  const note = data?.note ?? "Estetica cresce 18% vs periodo anterior";
 
   const total = Math.max(
     items.reduce((sum, item) => sum + item.value, 0),
@@ -195,7 +206,7 @@ export function ProceduresDistribution() {
                   Observacao
                 </p>
                 <p className="mt-2 text-sm font-semibold text-slate-900">
-                  Estetica cresce 18% vs periodo anterior
+                  {note}
                 </p>
               </div>
             </div>

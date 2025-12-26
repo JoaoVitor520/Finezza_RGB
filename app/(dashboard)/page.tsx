@@ -19,9 +19,11 @@ import { ProceduresDistribution } from "../../components/dashboard/procedures-di
 import { QuickActions } from "../../components/dashboard/quick-actions";
 import { RevenuePulse } from "../../components/dashboard/revenue-pulse";
 import { useGoogleCalendar } from "../../hooks/useGoogleCalendar";
+import { useDashboardData } from "../../hooks/useDashboardData";
 
-const metrics = [
+const defaultMetrics = [
   {
+    id: "revenue",
     label: "Faturamento",
     value: 128420,
     icon: DollarSign,
@@ -30,6 +32,7 @@ const metrics = [
     format: (value: number) => `R$ ${value.toLocaleString("pt-BR")}`,
   },
   {
+    id: "patients",
     label: "Pacientes Hoje",
     value: 24,
     icon: Users,
@@ -37,6 +40,7 @@ const metrics = [
     accent: "teal" as const,
   },
   {
+    id: "ticket",
     label: "Ticket Medio",
     value: 380,
     icon: TrendingUp,
@@ -46,7 +50,7 @@ const metrics = [
   },
 ];
 
-const notifications: NotificationItem[] = [
+const defaultNotifications: NotificationItem[] = [
   {
     id: "notif-1",
     title: "Paciente Joao confirmou",
@@ -78,6 +82,7 @@ const notifications: NotificationItem[] = [
 ];
 
 export default function DashboardPage() {
+  const { data, isLoading, refresh } = useDashboardData();
   const {
     isConnected,
     isConnecting,
@@ -88,16 +93,62 @@ export default function DashboardPage() {
     connect,
   } = useGoogleCalendar();
   const lastConflictRef = React.useRef<string | null>(null);
+  const conflictEvent = data?.agenda.lastConflict ?? lastConflict;
+
+  const metrics = defaultMetrics.map((metric) => {
+    if (!data?.metrics) return metric;
+
+    if (metric.id === "revenue") {
+      return {
+        ...metric,
+        value: data.metrics.revenue.value,
+        trend: data.metrics.revenue.trend,
+      };
+    }
+
+    if (metric.id === "patients") {
+      return {
+        ...metric,
+        value: data.metrics.patientsToday.value,
+        trend: data.metrics.patientsToday.trend,
+      };
+    }
+
+    return {
+      ...metric,
+      value: data.metrics.ticketMedio.value,
+      trend: data.metrics.ticketMedio.trend,
+    };
+  });
+
+  const notifications = data?.notifications ?? defaultNotifications;
+  const agendaEvents = data?.agenda.events ?? events;
+  const agendaIsConnected = data?.agenda.connected ?? isConnected;
+  const agendaIsConnecting = isConnecting || isLoading;
+  const agendaLastSyncAt = data?.agenda.lastSyncAt
+    ? new Date(data.agenda.lastSyncAt)
+    : lastSyncAt;
+  const agendaNextSyncAt = data?.agenda.nextSyncAt
+    ? new Date(data.agenda.nextSyncAt)
+    : nextSyncAt;
+
+  const handleSync = React.useCallback(async () => {
+    if (data?.agenda.connected) {
+      await refresh();
+      return;
+    }
+    await connect();
+  }, [connect, data?.agenda.connected, refresh]);
 
   React.useEffect(() => {
-    if (!lastConflict || lastConflictRef.current === lastConflict.id) return;
+    if (!conflictEvent || lastConflictRef.current === conflictEvent.id) return;
 
     toast.error("Conflito de agenda detectado", {
-      description: `${lastConflict.time} - ${lastConflict.title} (${lastConflict.patient})`,
+      description: `${conflictEvent.time} - ${conflictEvent.title} (${conflictEvent.patient})`,
     });
 
-    lastConflictRef.current = lastConflict.id;
-  }, [lastConflict]);
+    lastConflictRef.current = conflictEvent.id;
+  }, [conflictEvent]);
 
   return (
     <motion.div
@@ -120,12 +171,12 @@ export default function DashboardPage() {
       <section className="grid gap-6 lg:grid-cols-3">
         <motion.div layout className="space-y-6 lg:col-span-2">
           <AgendaWidget
-            events={events}
-            isConnected={isConnected}
-            isConnecting={isConnecting}
-            lastSyncAt={lastSyncAt}
-            nextSyncAt={nextSyncAt}
-            onSync={connect}
+            events={agendaEvents}
+            isConnected={agendaIsConnected}
+            isConnecting={agendaIsConnecting}
+            lastSyncAt={agendaLastSyncAt}
+            nextSyncAt={agendaNextSyncAt}
+            onSync={handleSync}
           />
           <RevenuePulse />
         </motion.div>
@@ -135,13 +186,13 @@ export default function DashboardPage() {
       </section>
 
       <section className="space-y-6">
-        <PatientsAnalytics />
-        <ConsultationsAnalytics />
+        <PatientsAnalytics data={data?.analytics.patients} />
+        <ConsultationsAnalytics data={data?.analytics.consultations} />
         <div className="grid gap-6 lg:grid-cols-2">
-          <FinanceForecast />
-          <ProceduresDistribution />
+          <FinanceForecast data={data?.analytics.finance} />
+          <ProceduresDistribution data={data?.analytics.procedures} />
         </div>
-        <ChairOccupancy />
+        <ChairOccupancy data={data?.analytics.occupancy} />
       </section>
     </motion.div>
   );

@@ -56,12 +56,21 @@ const chartData: Record<
   },
 };
 
-export function ChairOccupancy() {
+type ChairOccupancyData = {
+  chartData: typeof chartData;
+  stats: {
+    activeDays: number;
+    hoursTotal: number;
+    chairs: number;
+  };
+};
+
+export function ChairOccupancy({ data }: { data?: ChairOccupancyData }) {
   const [range, setRange] = React.useState<RangeKey>("6m");
   const [shift, setShift] = React.useState<ShiftKey>("dia");
   const [activeIndex, setActiveIndex] = React.useState<number | null>(null);
 
-  const selected = chartData[range];
+  const selected = (data?.chartData ?? chartData)[range];
   const values = selected[shift];
   const width = 560;
   const height = 200;
@@ -94,9 +103,21 @@ export function ChairOccupancy() {
   };
 
   const statCards = [
-    { label: "Dias ativos", value: "22", icon: Clock3 },
-    { label: "Horas totais", value: "168", icon: Activity },
-    { label: "Cadeiras", value: "4", icon: Sofa },
+    {
+      label: "Dias ativos",
+      value: data?.stats ? data.stats.activeDays.toString() : "22",
+      icon: Clock3,
+    },
+    {
+      label: "Horas totais",
+      value: data?.stats ? data.stats.hoursTotal.toString() : "168",
+      icon: Activity,
+    },
+    {
+      label: "Cadeiras",
+      value: data?.stats ? data.stats.chairs.toString() : "4",
+      icon: Sofa,
+    },
   ];
 
   return (

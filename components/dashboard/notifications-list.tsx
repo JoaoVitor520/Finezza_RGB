@@ -54,32 +54,38 @@ export function NotificationsList({ items }: { items: NotificationItem[] }) {
       </div>
 
       <div className="mt-5 space-y-3">
-        {items.map((item) => {
-          const config = toneConfig[item.tone];
-          const Icon = config.icon;
-          return (
-            <div
-              key={item.id}
-              className="flex items-start gap-3 rounded-xl border border-white/60 bg-white/70 px-4 py-3 shadow-sm shadow-indigo-500/10"
-            >
+        {items.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-slate-200/80 bg-white/60 px-4 py-5 text-sm text-slate-500">
+            Nenhum alerta recente. Tudo sob controle por aqui.
+          </div>
+        ) : (
+          items.map((item) => {
+            const config = toneConfig[item.tone];
+            const Icon = config.icon;
+            return (
               <div
-                className={cn(
-                  "flex h-9 w-9 items-center justify-center rounded-xl",
-                  config.badgeClass
-                )}
+                key={item.id}
+                className="flex items-start gap-3 rounded-xl border border-white/60 bg-white/70 px-4 py-3 shadow-sm shadow-indigo-500/10"
               >
-                <Icon className={cn("h-5 w-5", config.iconClass)} />
+                <div
+                  className={cn(
+                    "flex h-9 w-9 items-center justify-center rounded-xl",
+                    config.badgeClass
+                  )}
+                >
+                  <Icon className={cn("h-5 w-5", config.iconClass)} />
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-slate-900">
+                    {item.title}
+                  </p>
+                  <p className="text-xs text-slate-500">{item.description}</p>
+                </div>
+                <span className="text-xs text-slate-400">{item.time}</span>
               </div>
-              <div className="flex-1">
-                <p className="text-sm font-medium text-slate-900">
-                  {item.title}
-                </p>
-                <p className="text-xs text-slate-500">{item.description}</p>
-              </div>
-              <span className="text-xs text-slate-400">{item.time}</span>
-            </div>
-          );
-        })}
+            );
+          })
+        )}
       </div>
     </Card>
   );
