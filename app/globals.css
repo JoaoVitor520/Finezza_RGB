@@ -1,0 +1,36 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --font-sans: var(--font-sora);
+  --color-teal: 20 184 166;
+  --color-cyan: 6 182 212;
+  --color-indigo: 99 102 241;
+  --color-slate: 15 23 42;
+  --color-surface: 255 255 255;
+  --radius: 1.25rem;
+}
+
+.dark {
+  color-scheme: dark;
+  --color-slate: 248 250 252;
+  --color-surface: 15 23 42;
+}
+
+@layer base {
+  * {
+    @apply border-slate-200/60;
+  }
+
+  body {
+    font-family: var(--font-sans), ui-sans-serif, system-ui, -apple-system,
+      "Segoe UI", sans-serif;
+    @apply bg-slate-50 text-slate-900 antialiased;
+  }
+
+  ::selection {
+    background-color: rgb(20 184 166 / 0.25);
+  }
+}
