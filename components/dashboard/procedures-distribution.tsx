@@ -76,7 +76,8 @@ export function ProceduresDistribution({
 
   const scale = periodScale[period];
   const source = data?.data ?? procedureData;
-  const items = source[category].map((item) => ({
+  const baseItems = source[category].length > 0 ? source[category] : source.todos;
+  const items = baseItems.map((item) => ({
     ...item,
     value: Math.round(item.value * scale),
   }));

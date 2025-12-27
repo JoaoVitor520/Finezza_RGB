@@ -54,6 +54,7 @@ begin
       updated_at = now();
 
   delete from public.payments where clinic_id = v_clinic_id;
+  delete from public.expenses where clinic_id = v_clinic_id;
   delete from public.invoices where clinic_id = v_clinic_id;
   delete from public.appointment_procedures where clinic_id = v_clinic_id;
   delete from public.appointments where clinic_id = v_clinic_id;
@@ -336,5 +337,25 @@ begin
       1,
       v_proc_price
     );
+  end loop;
+
+  for v_month_offset in 0..11 loop
+    v_month_start := (date_trunc('month', now())::date - ((11 - v_month_offset) * interval '1 month'));
+
+    insert into public.expenses (
+      clinic_id,
+      description,
+      category,
+      vendor,
+      amount,
+      paid_at,
+      created_by
+    )
+    values
+      (v_clinic_id, 'Aluguel clinica', 'fixo', 'Imobiliaria RB', round((5200 + random() * 400)::numeric, 2), v_month_start + interval '2 days', v_owner_id),
+      (v_clinic_id, 'Folha equipe', 'pessoal', 'Equipe', round((9800 + random() * 1200)::numeric, 2), v_month_start + interval '5 days', v_owner_id),
+      (v_clinic_id, 'Materiais e insumos', 'insumos', 'Dental Supply', round((2100 + random() * 800)::numeric, 2), v_month_start + interval '11 days', v_owner_id),
+      (v_clinic_id, 'Marketing local', 'marketing', 'Ads', round((900 + random() * 350)::numeric, 2), v_month_start + interval '18 days', v_owner_id),
+      (v_clinic_id, 'Manutencao equipamentos', 'operacional', 'TechCare', round((650 + random() * 300)::numeric, 2), v_month_start + interval '23 days', v_owner_id);
   end loop;
 end $$;

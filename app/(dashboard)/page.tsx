@@ -82,7 +82,7 @@ const defaultNotifications: NotificationItem[] = [
 ];
 
 export default function DashboardPage() {
-  const { data, isLoading, refresh } = useDashboardData();
+  const { data, isLoading, refresh: refreshDashboard } = useDashboardData();
   const {
     isConnected,
     isConnecting,
@@ -91,9 +91,10 @@ export default function DashboardPage() {
     lastSyncAt,
     nextSyncAt,
     connect,
+    refresh: refreshGoogle,
   } = useGoogleCalendar();
   const lastConflictRef = React.useRef<string | null>(null);
-  const conflictEvent = data?.agenda.lastConflict ?? lastConflict;
+  const conflictEvent = lastConflict ?? data?.agenda.lastConflict ?? null;
 
   const metrics = defaultMetrics.map((metric) => {
     if (!data?.metrics) return metric;
@@ -122,23 +123,24 @@ export default function DashboardPage() {
   });
 
   const notifications = data?.notifications ?? defaultNotifications;
-  const agendaEvents = data?.agenda.events ?? events;
-  const agendaIsConnected = data?.agenda.connected ?? isConnected;
+  const agendaEvents =
+    events.length > 0 ? events : data?.agenda.events ?? [];
+  const agendaIsConnected = isConnected || data?.agenda.connected || false;
   const agendaIsConnecting = isConnecting || isLoading;
-  const agendaLastSyncAt = data?.agenda.lastSyncAt
-    ? new Date(data.agenda.lastSyncAt)
-    : lastSyncAt;
-  const agendaNextSyncAt = data?.agenda.nextSyncAt
-    ? new Date(data.agenda.nextSyncAt)
-    : nextSyncAt;
+  const agendaLastSyncAt =
+    lastSyncAt ??
+    (data?.agenda.lastSyncAt ? new Date(data.agenda.lastSyncAt) : null);
+  const agendaNextSyncAt =
+    nextSyncAt ??
+    (data?.agenda.nextSyncAt ? new Date(data.agenda.nextSyncAt) : null);
 
   const handleSync = React.useCallback(async () => {
-    if (data?.agenda.connected) {
-      await refresh();
+    if (isConnected) {
+      await Promise.all([refreshGoogle(), refreshDashboard()]);
       return;
     }
     await connect();
-  }, [connect, data?.agenda.connected, refresh]);
+  }, [connect, isConnected, refreshDashboard, refreshGoogle]);
 
   React.useEffect(() => {
     if (!conflictEvent || lastConflictRef.current === conflictEvent.id) return;

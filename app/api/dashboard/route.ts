@@ -94,9 +94,11 @@ export async function GET(request: Request) {
     patientsResult,
     appointmentsResult,
     paymentsResult,
+    expensesResult,
     proceduresResult,
     appointmentProceduresResult,
     notificationsResult,
+    googleTokensResult,
     chairsResult,
   ] = await Promise.all([
     supabaseAdmin
@@ -115,6 +117,11 @@ export async function GET(request: Request) {
       .eq("clinic_id", clinic.id)
       .gte("paid_at", rangeStart.toISOString()),
     supabaseAdmin
+      .from("expenses")
+      .select("amount, paid_at")
+      .eq("clinic_id", clinic.id)
+      .gte("paid_at", rangeStart.toISOString()),
+    supabaseAdmin
       .from("procedures")
       .select("id, name, category")
       .eq("clinic_id", clinic.id),
@@ -128,6 +135,11 @@ export async function GET(request: Request) {
       .eq("clinic_id", clinic.id)
       .order("created_at", { ascending: false })
       .limit(6),
+    supabaseAdmin
+      .from("google_calendar_tokens")
+      .select("id, updated_at, expires_at")
+      .eq("clinic_id", clinic.id)
+      .maybeSingle(),
     supabaseAdmin.from("chairs").select("id, status").eq("clinic_id", clinic.id),
   ]);
 
@@ -135,9 +147,11 @@ export async function GET(request: Request) {
     patientsResult.error ||
     appointmentsResult.error ||
     paymentsResult.error ||
+    expensesResult.error ||
     proceduresResult.error ||
     appointmentProceduresResult.error ||
     notificationsResult.error ||
+    googleTokensResult.error ||
     chairsResult.error
   ) {
     return NextResponse.json(
@@ -149,9 +163,11 @@ export async function GET(request: Request) {
   const patients = patientsResult.data ?? [];
   const appointments = appointmentsResult.data ?? [];
   const payments = paymentsResult.data ?? [];
+  const expenses = expensesResult.data ?? [];
   const procedures = proceduresResult.data ?? [];
   const appointmentProcedures = appointmentProceduresResult.data ?? [];
   const notifications = notificationsResult.data ?? [];
+  const googleTokens = googleTokensResult.data ?? null;
   const chairs = chairsResult.data ?? [];
 
   const patientById = new Map(patients.map((patient) => [patient.id, patient]));
@@ -209,7 +225,7 @@ export async function GET(request: Request) {
       else shiftCounts.noite[index] += 1;
     }
 
-    if (appointment.patient_id) {
+    if (appointment.status !== "cancelled" && appointment.patient_id) {
       patientsByMonth[index].add(appointment.patient_id);
       const existing = patientFirstMonth.get(appointment.patient_id);
       if (existing === undefined || index < existing) {
@@ -244,10 +260,23 @@ export async function GET(request: Request) {
     revenueByMonth[index] += Number(payment.amount ?? 0);
   });
 
-  const expenseByMonth = revenueByMonth.map((value, index) => {
-    const factor = 0.55 + (index % 3) * 0.02;
-    return Math.round(value * factor);
+  let expenseByMonth = Array.from({ length: monthCount }, () => 0);
+  expenses.forEach((expense) => {
+    if (!expense.paid_at) return;
+    const paidAt = new Date(expense.paid_at);
+    const key = toMonthKey(paidAt);
+    const index = monthIndex.get(key);
+    if (index === undefined) return;
+    expenseByMonth[index] += Number(expense.amount ?? 0);
   });
+
+  if (expenses.length === 0) {
+    // TODO: Replace with real expense records once available.
+    expenseByMonth = revenueByMonth.map((value, index) => {
+      const factor = 0.55 + (index % 3) * 0.02;
+      return Math.round(value * factor);
+    });
+  }
 
   const saldoByMonth = revenueByMonth.map(
     (value, index) => value - expenseByMonth[index]
@@ -659,9 +688,11 @@ export async function GET(request: Request) {
     },
     agenda: {
       events: agendaEvents,
-      connected: true,
-      lastSyncAt: now.toISOString(),
-      nextSyncAt: new Date(now.getTime() + 30 * 60 * 1000).toISOString(),
+      connected: Boolean(googleTokens),
+      lastSyncAt: googleTokens?.updated_at ?? null,
+      nextSyncAt: googleTokens
+        ? new Date(now.getTime() + 30 * 60 * 1000).toISOString()
+        : null,
       lastConflict,
     },
     notifications: notificationItems.slice(0, 6),

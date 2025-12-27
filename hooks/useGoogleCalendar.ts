@@ -10,6 +10,14 @@ export type CalendarEvent = {
   status: "confirmed" | "pending" | "conflict";
 };
 
+type GoogleEventsResponse = {
+  connected: boolean;
+  events: CalendarEvent[];
+  lastConflict: CalendarEvent | null;
+  lastSyncAt: string | null;
+  nextSyncAt: string | null;
+};
+
 type UseGoogleCalendarResult = {
   isConnecting: boolean;
   isConnected: boolean;
@@ -18,6 +26,7 @@ type UseGoogleCalendarResult = {
   lastSyncAt: Date | null;
   nextSyncAt: Date | null;
   connect: () => Promise<void>;
+  refresh: () => Promise<void>;
   reset: () => void;
 };
 
@@ -31,52 +40,58 @@ export function useGoogleCalendar(): UseGoogleCalendarResult {
   const [lastSyncAt, setLastSyncAt] = React.useState<Date | null>(null);
   const [nextSyncAt, setNextSyncAt] = React.useState<Date | null>(null);
 
+  const refresh = React.useCallback(async () => {
+    try {
+      const response = await fetch("/api/google/events", { cache: "no-store" });
+      if (!response.ok) {
+        setIsConnected(false);
+        setEvents([]);
+        setLastConflict(null);
+        setLastSyncAt(null);
+        setNextSyncAt(null);
+        return;
+      }
+
+      const payload = (await response.json()) as GoogleEventsResponse;
+      setIsConnected(payload.connected);
+      setEvents(payload.events ?? []);
+      setLastConflict(payload.lastConflict ?? null);
+      setLastSyncAt(payload.lastSyncAt ? new Date(payload.lastSyncAt) : null);
+      setNextSyncAt(payload.nextSyncAt ? new Date(payload.nextSyncAt) : null);
+    } catch {
+      setIsConnected(false);
+      setEvents([]);
+      setLastConflict(null);
+      setLastSyncAt(null);
+      setNextSyncAt(null);
+    }
+  }, []);
+
   const connect = React.useCallback(async () => {
     if (isConnecting) return;
-
     setIsConnecting(true);
-    try {
-      // TODO: Replace with real OAuth2 flow + token storage (Google API / Supabase).
-      await new Promise((resolve) => setTimeout(resolve, 900));
 
-      setIsConnected(true);
-      const now = new Date();
-      setLastSyncAt(now);
-      setNextSyncAt(new Date(now.getTime() + 1000 * 60 * 30));
-
-      // TODO: Replace with Google Calendar API fetch.
-      const mockEvents: CalendarEvent[] = [
-        {
-          id: "evt-1",
-          title: "Lentes de contato",
-          time: "09:00",
-          patient: "Mariana Costa",
-          status: "confirmed",
-        },
-        {
-          id: "evt-2",
-          title: "Consulta estetica",
-          time: "10:30",
-          patient: "Joao Pereira",
-          status: "pending",
-        },
-        {
-          id: "evt-3",
-          title: "Revisao ortodontica",
-          time: "11:30",
-          patient: "Carla Souza",
-          status: "conflict",
-        },
-      ];
-
-      setEvents(mockEvents);
-      setLastConflict(
-        mockEvents.find((event) => event.status === "conflict") ?? null
-      );
-    } finally {
-      setIsConnecting(false);
+    if (typeof window !== "undefined") {
+      window.location.href = "/api/google/connect";
     }
   }, [isConnecting]);
+
+  React.useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (!params.get("google")) return;
+
+    params.delete("google");
+    const nextUrl = `${window.location.pathname}${
+      params.toString() ? `?${params.toString()}` : ""
+    }`;
+    window.history.replaceState({}, "", nextUrl);
+    void refresh();
+  }, [refresh]);
 
   const reset = React.useCallback(() => {
     setIsConnected(false);
@@ -94,6 +109,7 @@ export function useGoogleCalendar(): UseGoogleCalendarResult {
     lastSyncAt,
     nextSyncAt,
     connect,
+    refresh,
     reset,
   };
 }

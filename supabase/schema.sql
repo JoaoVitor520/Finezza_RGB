@@ -233,6 +233,20 @@ create table if not exists public.payments (
   constraint payments_amount_check check (amount > 0)
 );
 
+create table if not exists public.expenses (
+  id uuid primary key default gen_random_uuid(),
+  clinic_id uuid not null references public.clinics on delete cascade,
+  description text not null,
+  category text,
+  vendor text,
+  amount numeric(10,2) not null,
+  paid_at timestamptz not null default now(),
+  created_by uuid references auth.users on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint expenses_amount_check check (amount > 0)
+);
+
 create table if not exists public.inventory_items (
   id uuid primary key default gen_random_uuid(),
   clinic_id uuid not null references public.clinics on delete cascade,
@@ -269,6 +283,20 @@ create table if not exists public.notifications (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.google_calendar_tokens (
+  id uuid primary key default gen_random_uuid(),
+  clinic_id uuid not null references public.clinics on delete cascade,
+  user_id uuid references auth.users on delete set null,
+  access_token text not null,
+  refresh_token text,
+  scope text,
+  token_type text,
+  expires_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (clinic_id)
+);
+
 create index if not exists clinic_members_user_idx on public.clinic_members (user_id);
 create index if not exists patients_clinic_idx on public.patients (clinic_id);
 create index if not exists appointments_clinic_idx on public.appointments (clinic_id);
@@ -277,9 +305,12 @@ create index if not exists appointments_patient_idx on public.appointments (pati
 create index if not exists procedures_clinic_idx on public.procedures (clinic_id);
 create index if not exists invoices_clinic_idx on public.invoices (clinic_id);
 create index if not exists payments_clinic_idx on public.payments (clinic_id);
+create index if not exists expenses_clinic_idx on public.expenses (clinic_id);
+create index if not exists expenses_paid_at_idx on public.expenses (paid_at);
 create index if not exists inventory_items_clinic_idx on public.inventory_items (clinic_id);
 create index if not exists inventory_movements_item_idx on public.inventory_movements (item_id);
 create index if not exists notifications_clinic_idx on public.notifications (clinic_id);
+create index if not exists google_calendar_tokens_user_idx on public.google_calendar_tokens (user_id);
 
 create or replace function public.set_updated_at()
 returns trigger
@@ -329,6 +360,16 @@ for each row execute function public.set_updated_at();
 drop trigger if exists set_updated_at_invoices on public.invoices;
 create trigger set_updated_at_invoices
 before update on public.invoices
+for each row execute function public.set_updated_at();
+
+drop trigger if exists set_updated_at_expenses on public.expenses;
+create trigger set_updated_at_expenses
+before update on public.expenses
+for each row execute function public.set_updated_at();
+
+drop trigger if exists set_updated_at_google_calendar_tokens on public.google_calendar_tokens;
+create trigger set_updated_at_google_calendar_tokens
+before update on public.google_calendar_tokens
 for each row execute function public.set_updated_at();
 
 drop trigger if exists set_updated_at_inventory_items on public.inventory_items;
@@ -437,9 +478,11 @@ alter table public.procedures enable row level security;
 alter table public.appointment_procedures enable row level security;
 alter table public.invoices enable row level security;
 alter table public.payments enable row level security;
+alter table public.expenses enable row level security;
 alter table public.inventory_items enable row level security;
 alter table public.inventory_movements enable row level security;
 alter table public.notifications enable row level security;
+alter table public.google_calendar_tokens enable row level security;
 
 drop policy if exists "Profiles are viewable by owner" on public.profiles;
 create policy "Profiles are viewable by owner"
@@ -541,6 +584,12 @@ on public.payments for all
 using (public.is_clinic_member(clinic_id))
 with check (public.is_clinic_member(clinic_id));
 
+drop policy if exists "Expenses are managed by members" on public.expenses;
+create policy "Expenses are managed by members"
+on public.expenses for all
+using (public.is_clinic_member(clinic_id))
+with check (public.is_clinic_member(clinic_id));
+
 drop policy if exists "Inventory items are managed by members" on public.inventory_items;
 create policy "Inventory items are managed by members"
 on public.inventory_items for all
@@ -568,3 +617,9 @@ with check (
   public.is_clinic_member(clinic_id)
   and (user_id is null or user_id = auth.uid())
 );
+
+drop policy if exists "Google tokens are managed by owner" on public.google_calendar_tokens;
+create policy "Google tokens are managed by owner"
+on public.google_calendar_tokens for all
+using (public.is_clinic_owner(clinic_id))
+with check (public.is_clinic_owner(clinic_id));
