@@ -19,6 +19,13 @@ declare
   v_chair_id uuid;
   v_appointment_id uuid;
   v_invoice_id uuid;
+  v_record_index integer;
+  v_record_type text;
+  v_recorded_at timestamptz;
+  v_tag_id uuid;
+  v_checkin_index integer;
+  v_block_start timestamptz;
+  v_block_end timestamptz;
   v_proc_id uuid;
   v_proc_price numeric(10,2);
   v_proc_count integer;
@@ -58,6 +65,12 @@ begin
   delete from public.expenses where clinic_id = v_clinic_id;
   delete from public.budgets where clinic_id = v_clinic_id;
   delete from public.invoices where clinic_id = v_clinic_id;
+  delete from public.appointment_checkins where clinic_id = v_clinic_id;
+  delete from public.appointment_blocks where clinic_id = v_clinic_id;
+  delete from public.waiting_list where clinic_id = v_clinic_id;
+  delete from public.patient_records where clinic_id = v_clinic_id;
+  delete from public.patient_tag_assignments where clinic_id = v_clinic_id;
+  delete from public.patient_tags where clinic_id = v_clinic_id;
   delete from public.appointment_procedures where clinic_id = v_clinic_id;
   delete from public.appointments where clinic_id = v_clinic_id;
   delete from public.procedures where clinic_id = v_clinic_id;
@@ -92,6 +105,44 @@ begin
       price_base = excluded.price_base,
       duration_min = excluded.duration_min,
       updated_at = now();
+
+  v_block_start := date_trunc('day', now()) + interval '2 days' + time '12:00';
+  v_block_end := v_block_start + interval '2 hours';
+  insert into public.appointment_blocks (
+    clinic_id,
+    title,
+    start_at,
+    end_at,
+    reason,
+    created_by
+  )
+  values (
+    v_clinic_id,
+    'Bloqueio almoco',
+    v_block_start,
+    v_block_end,
+    'Horario reservado para equipe',
+    v_owner_id
+  );
+
+  v_block_start := date_trunc('day', now()) + interval '7 days' + time '09:00';
+  v_block_end := v_block_start + interval '3 hours';
+  insert into public.appointment_blocks (
+    clinic_id,
+    title,
+    start_at,
+    end_at,
+    reason,
+    created_by
+  )
+  values (
+    v_clinic_id,
+    'Treinamento',
+    v_block_start,
+    v_block_end,
+    'Capacitacao interna',
+    v_owner_id
+  );
 
   insert into public.budgets (
     clinic_id,
@@ -143,6 +194,43 @@ begin
     (v_clinic_id, 'Caio Rocha', 'caio.rocha@mail.com', '11 98888-1022', '1989-01-31', 'male', 'Implante final'),
     (v_clinic_id, 'Luiza Faria', 'luiza.faria@mail.com', '11 98888-1023', '1996-08-07', 'female', 'Limpeza premium'),
     (v_clinic_id, 'Marco Teixeira', 'marco.teixeira@mail.com', '11 98888-1024', '1985-02-26', 'male', 'Retorno anual');
+
+  insert into public.patient_tags (clinic_id, label, color)
+  values
+    (v_clinic_id, 'VIP', '#06B6D4'),
+    (v_clinic_id, 'Orto', '#6366F1'),
+    (v_clinic_id, 'Estetica', '#14B8A6'),
+    (v_clinic_id, 'Retorno', '#F59E0B'),
+    (v_clinic_id, 'Implante', '#EF4444')
+  on conflict (clinic_id, label) do update
+  set color = excluded.color,
+      updated_at = now();
+
+  for v_record_index in 1..36 loop
+    select id into v_patient_id
+    from public.patients
+    where clinic_id = v_clinic_id
+    order by random()
+    limit 1;
+
+    select id into v_tag_id
+    from public.patient_tags
+    where clinic_id = v_clinic_id
+    order by random()
+    limit 1;
+
+    insert into public.patient_tag_assignments (
+      clinic_id,
+      patient_id,
+      tag_id
+    )
+    values (
+      v_clinic_id,
+      v_patient_id,
+      v_tag_id
+    )
+    on conflict (patient_id, tag_id) do nothing;
+  end loop;
 
   for v_month_offset in 0..11 loop
     v_month_start := (date_trunc('month', now())::date - ((11 - v_month_offset) * interval '1 month'));
@@ -354,6 +442,144 @@ begin
       v_proc_id,
       1,
       v_proc_price
+    );
+  end loop;
+
+  select id into v_patient_id
+  from public.patients
+  where clinic_id = v_clinic_id
+  order by random()
+  limit 1;
+
+  insert into public.waiting_list (
+    clinic_id,
+    patient_id,
+    full_name,
+    contact_phone,
+    notes,
+    preferred_date,
+    status,
+    created_by
+  )
+  values
+    (
+      v_clinic_id,
+      v_patient_id,
+      null,
+      '11 97777-2233',
+      'Preferencia para horario matutino',
+      (now()::date + 4),
+      'open',
+      v_owner_id
+    ),
+    (
+      v_clinic_id,
+      null,
+      'Marcela Andrade',
+      '11 96666-4400',
+      'Primeira consulta - indicacao',
+      (now()::date + 6),
+      'contacted',
+      v_owner_id
+    ),
+    (
+      v_clinic_id,
+      null,
+      'Rita Campos',
+      '11 95555-3322',
+      'Busca avaliacao ortodontica',
+      (now()::date + 9),
+      'open',
+      v_owner_id
+    );
+
+  for v_checkin_index in 1..8 loop
+    select id, start_at
+    into v_appointment_id, v_start_at
+    from public.appointments
+    where clinic_id = v_clinic_id
+      and start_at between (now() - interval '1 day') and (now() + interval '2 days')
+    order by random()
+    limit 1;
+
+    if v_appointment_id is not null then
+      insert into public.appointment_checkins (
+        clinic_id,
+        appointment_id,
+        status,
+        arrived_at,
+        chair_at,
+        completed_at,
+        created_by
+      )
+      values (
+        v_clinic_id,
+        v_appointment_id,
+        (
+          case
+            when random() < 0.4 then 'arrived'
+            when random() < 0.7 then 'in_chair'
+            else 'waiting'
+          end
+        )::public.checkin_status,
+        v_start_at - interval '10 minutes',
+        v_start_at + interval '5 minutes',
+        null,
+        v_owner_id
+      )
+      on conflict (appointment_id) do update
+      set status = excluded.status,
+          arrived_at = excluded.arrived_at,
+          chair_at = excluded.chair_at,
+          updated_at = now();
+    end if;
+  end loop;
+
+  for v_record_index in 1..28 loop
+    select id into v_patient_id
+    from public.patients
+    where clinic_id = v_clinic_id
+    order by random()
+    limit 1;
+
+    select id into v_appointment_id
+    from public.appointments
+    where clinic_id = v_clinic_id
+    order by random()
+    limit 1;
+
+    v_recorded_at := now() - (random() * interval '210 days');
+    v_record_type := case
+      when random() < 0.25 then 'avaliacao'
+      when random() < 0.55 then 'evolucao'
+      when random() < 0.8 then 'procedimento'
+      else 'exame'
+    end;
+
+    insert into public.patient_records (
+      clinic_id,
+      patient_id,
+      appointment_id,
+      title,
+      record_type,
+      notes,
+      recorded_at,
+      created_by
+    )
+    values (
+      v_clinic_id,
+      v_patient_id,
+      v_appointment_id,
+      case v_record_type
+        when 'avaliacao' then 'Avaliacao inicial'
+        when 'procedimento' then 'Procedimento executado'
+        when 'exame' then 'Analise complementar'
+        else 'Evolucao clinica'
+      end,
+      v_record_type,
+      'Observacoes clinicas geradas automaticamente para o dashboard.',
+      v_recorded_at,
+      v_owner_id
     );
   end loop;
 

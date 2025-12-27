@@ -113,6 +113,30 @@ exception
   when duplicate_object then null;
 end $$;
 
+do $$
+begin
+  create type public.checkin_status as enum (
+    'waiting',
+    'arrived',
+    'in_chair',
+    'completed'
+  );
+exception
+  when duplicate_object then null;
+end $$;
+
+do $$
+begin
+  create type public.waitlist_status as enum (
+    'open',
+    'contacted',
+    'scheduled',
+    'closed'
+  );
+exception
+  when duplicate_object then null;
+end $$;
+
 create table if not exists public.profiles (
   id uuid primary key references auth.users on delete cascade,
   full_name text,
@@ -156,6 +180,25 @@ create table if not exists public.patients (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.patient_tags (
+  id uuid primary key default gen_random_uuid(),
+  clinic_id uuid not null references public.clinics on delete cascade,
+  label text not null,
+  color text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (clinic_id, label)
+);
+
+create table if not exists public.patient_tag_assignments (
+  id uuid primary key default gen_random_uuid(),
+  clinic_id uuid not null references public.clinics on delete cascade,
+  patient_id uuid not null references public.patients on delete cascade,
+  tag_id uuid not null references public.patient_tags on delete cascade,
+  created_at timestamptz not null default now(),
+  unique (patient_id, tag_id)
+);
+
 create table if not exists public.chairs (
   id uuid primary key default gen_random_uuid(),
   clinic_id uuid not null references public.clinics on delete cascade,
@@ -180,6 +223,62 @@ create table if not exists public.appointments (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint appointments_time_check check (end_at > start_at)
+);
+
+create table if not exists public.appointment_blocks (
+  id uuid primary key default gen_random_uuid(),
+  clinic_id uuid not null references public.clinics on delete cascade,
+  title text not null,
+  start_at timestamptz not null,
+  end_at timestamptz not null,
+  reason text,
+  created_by uuid references auth.users on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint appointment_blocks_time_check check (end_at > start_at)
+);
+
+create table if not exists public.appointment_checkins (
+  id uuid primary key default gen_random_uuid(),
+  clinic_id uuid not null references public.clinics on delete cascade,
+  appointment_id uuid not null references public.appointments on delete cascade,
+  status public.checkin_status not null default 'waiting',
+  arrived_at timestamptz,
+  chair_at timestamptz,
+  completed_at timestamptz,
+  created_by uuid references auth.users on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (appointment_id)
+);
+
+create table if not exists public.waiting_list (
+  id uuid primary key default gen_random_uuid(),
+  clinic_id uuid not null references public.clinics on delete cascade,
+  patient_id uuid references public.patients on delete set null,
+  full_name text,
+  contact_phone text,
+  notes text,
+  preferred_date date,
+  status public.waitlist_status not null default 'open',
+  created_by uuid references auth.users on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint waiting_list_identity_check check (patient_id is not null or full_name is not null)
+);
+
+create table if not exists public.patient_records (
+  id uuid primary key default gen_random_uuid(),
+  clinic_id uuid not null references public.clinics on delete cascade,
+  patient_id uuid not null references public.patients on delete cascade,
+  appointment_id uuid references public.appointments on delete set null,
+  title text not null,
+  record_type text not null default 'evolucao',
+  notes text,
+  recorded_at timestamptz not null default now(),
+  created_by uuid references auth.users on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 
 create table if not exists public.procedures (
@@ -324,9 +423,20 @@ create table if not exists public.google_calendar_tokens (
 
 create index if not exists clinic_members_user_idx on public.clinic_members (user_id);
 create index if not exists patients_clinic_idx on public.patients (clinic_id);
+create index if not exists patient_tags_clinic_idx on public.patient_tags (clinic_id);
+create index if not exists patient_tag_assignments_patient_idx on public.patient_tag_assignments (patient_id);
+create index if not exists patient_tag_assignments_tag_idx on public.patient_tag_assignments (tag_id);
 create index if not exists appointments_clinic_idx on public.appointments (clinic_id);
 create index if not exists appointments_start_idx on public.appointments (start_at);
 create index if not exists appointments_patient_idx on public.appointments (patient_id);
+create index if not exists appointment_blocks_clinic_idx on public.appointment_blocks (clinic_id);
+create index if not exists appointment_blocks_start_idx on public.appointment_blocks (start_at);
+create index if not exists appointment_checkins_appointment_idx on public.appointment_checkins (appointment_id);
+create index if not exists waiting_list_clinic_idx on public.waiting_list (clinic_id);
+create index if not exists waiting_list_status_idx on public.waiting_list (status);
+create index if not exists patient_records_clinic_idx on public.patient_records (clinic_id);
+create index if not exists patient_records_patient_idx on public.patient_records (patient_id);
+create index if not exists patient_records_recorded_idx on public.patient_records (recorded_at);
 create index if not exists procedures_clinic_idx on public.procedures (clinic_id);
 create index if not exists invoices_clinic_idx on public.invoices (clinic_id);
 create index if not exists payments_clinic_idx on public.payments (clinic_id);
@@ -370,6 +480,11 @@ create trigger set_updated_at_patients
 before update on public.patients
 for each row execute function public.set_updated_at();
 
+drop trigger if exists set_updated_at_patient_tags on public.patient_tags;
+create trigger set_updated_at_patient_tags
+before update on public.patient_tags
+for each row execute function public.set_updated_at();
+
 drop trigger if exists set_updated_at_chairs on public.chairs;
 create trigger set_updated_at_chairs
 before update on public.chairs
@@ -378,6 +493,26 @@ for each row execute function public.set_updated_at();
 drop trigger if exists set_updated_at_appointments on public.appointments;
 create trigger set_updated_at_appointments
 before update on public.appointments
+for each row execute function public.set_updated_at();
+
+drop trigger if exists set_updated_at_appointment_blocks on public.appointment_blocks;
+create trigger set_updated_at_appointment_blocks
+before update on public.appointment_blocks
+for each row execute function public.set_updated_at();
+
+drop trigger if exists set_updated_at_appointment_checkins on public.appointment_checkins;
+create trigger set_updated_at_appointment_checkins
+before update on public.appointment_checkins
+for each row execute function public.set_updated_at();
+
+drop trigger if exists set_updated_at_waiting_list on public.waiting_list;
+create trigger set_updated_at_waiting_list
+before update on public.waiting_list
+for each row execute function public.set_updated_at();
+
+drop trigger if exists set_updated_at_patient_records on public.patient_records;
+create trigger set_updated_at_patient_records
+before update on public.patient_records
 for each row execute function public.set_updated_at();
 
 drop trigger if exists set_updated_at_procedures on public.procedures;
@@ -506,12 +641,37 @@ as $$
   );
 $$;
 
+create or replace function public.has_clinic_role(
+  clinic_id uuid,
+  roles public.member_role[]
+)
+returns boolean
+language sql
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.clinic_members cm
+    where cm.clinic_id = clinic_id
+      and cm.user_id = auth.uid()
+      and cm.status = 'active'
+      and cm.role = any(roles)
+  );
+$$;
+
 alter table public.profiles enable row level security;
 alter table public.clinics enable row level security;
 alter table public.clinic_members enable row level security;
 alter table public.patients enable row level security;
+alter table public.patient_tags enable row level security;
+alter table public.patient_tag_assignments enable row level security;
 alter table public.chairs enable row level security;
 alter table public.appointments enable row level security;
+alter table public.appointment_blocks enable row level security;
+alter table public.appointment_checkins enable row level security;
+alter table public.waiting_list enable row level security;
+alter table public.patient_records enable row level security;
 alter table public.procedures enable row level security;
 alter table public.appointment_procedures enable row level security;
 alter table public.invoices enable row level security;
@@ -553,8 +713,18 @@ with check (owner_id = auth.uid());
 drop policy if exists "Clinics are updatable by owner" on public.clinics;
 create policy "Clinics are updatable by owner"
 on public.clinics for update
-using (owner_id = auth.uid())
-with check (owner_id = auth.uid());
+using (
+  public.has_clinic_role(
+    id,
+    array['owner','admin']::public.member_role[]
+  )
+)
+with check (
+  public.has_clinic_role(
+    id,
+    array['owner','admin']::public.member_role[]
+  )
+);
 
 drop policy if exists "Clinics are deletable by owner" on public.clinics;
 create policy "Clinics are deletable by owner"
@@ -562,97 +732,783 @@ on public.clinics for delete
 using (owner_id = auth.uid());
 
 drop policy if exists "Clinic members are viewable by member" on public.clinic_members;
-create policy "Clinic members are viewable by member"
+create policy "Clinic members are viewable by members"
 on public.clinic_members for select
-using (user_id = auth.uid() or public.is_clinic_owner(clinic_id));
+using (public.is_clinic_member(clinic_id));
 
 drop policy if exists "Clinic members are insertable by owner" on public.clinic_members;
 create policy "Clinic members are insertable by owner"
 on public.clinic_members for insert
-with check (public.is_clinic_owner(clinic_id));
+with check (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin']::public.member_role[]
+  )
+);
 
 drop policy if exists "Clinic members are updatable by owner" on public.clinic_members;
 create policy "Clinic members are updatable by owner"
 on public.clinic_members for update
-using (public.is_clinic_owner(clinic_id))
-with check (public.is_clinic_owner(clinic_id));
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin']::public.member_role[]
+  )
+)
+with check (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin']::public.member_role[]
+  )
+);
 
 drop policy if exists "Clinic members are deletable by owner" on public.clinic_members;
 create policy "Clinic members are deletable by owner"
 on public.clinic_members for delete
-using (public.is_clinic_owner(clinic_id));
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin']::public.member_role[]
+  )
+);
 
 drop policy if exists "Patients are managed by members" on public.patients;
-create policy "Patients are managed by members"
-on public.patients for all
-using (public.is_clinic_member(clinic_id))
-with check (public.is_clinic_member(clinic_id));
+drop policy if exists "Patients are readable by members" on public.patients;
+drop policy if exists "Patients are insertable by clinical team" on public.patients;
+drop policy if exists "Patients are updatable by clinical team" on public.patients;
+drop policy if exists "Patients are deletable by clinical team" on public.patients;
+create policy "Patients are readable by members"
+on public.patients for select
+using (public.is_clinic_member(clinic_id));
+create policy "Patients are insertable by clinical team"
+on public.patients for insert
+with check (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+);
+create policy "Patients are updatable by clinical team"
+on public.patients for update
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+)
+with check (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+);
+create policy "Patients are deletable by clinical team"
+on public.patients for delete
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+);
+
+drop policy if exists "Patient tags are readable by members" on public.patient_tags;
+drop policy if exists "Patient tags are insertable by clinical team" on public.patient_tags;
+drop policy if exists "Patient tags are updatable by clinical team" on public.patient_tags;
+drop policy if exists "Patient tags are deletable by clinical team" on public.patient_tags;
+create policy "Patient tags are readable by members"
+on public.patient_tags for select
+using (public.is_clinic_member(clinic_id));
+create policy "Patient tags are insertable by clinical team"
+on public.patient_tags for insert
+with check (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+);
+create policy "Patient tags are updatable by clinical team"
+on public.patient_tags for update
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+)
+with check (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+);
+create policy "Patient tags are deletable by clinical team"
+on public.patient_tags for delete
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+);
+
+drop policy if exists "Patient tag assignments are readable by members" on public.patient_tag_assignments;
+drop policy if exists "Patient tag assignments are insertable by clinical team" on public.patient_tag_assignments;
+drop policy if exists "Patient tag assignments are updatable by clinical team" on public.patient_tag_assignments;
+drop policy if exists "Patient tag assignments are deletable by clinical team" on public.patient_tag_assignments;
+create policy "Patient tag assignments are readable by members"
+on public.patient_tag_assignments for select
+using (public.is_clinic_member(clinic_id));
+create policy "Patient tag assignments are insertable by clinical team"
+on public.patient_tag_assignments for insert
+with check (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+);
+create policy "Patient tag assignments are updatable by clinical team"
+on public.patient_tag_assignments for update
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+)
+with check (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+);
+create policy "Patient tag assignments are deletable by clinical team"
+on public.patient_tag_assignments for delete
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+);
 
 drop policy if exists "Chairs are managed by members" on public.chairs;
-create policy "Chairs are managed by members"
-on public.chairs for all
-using (public.is_clinic_member(clinic_id))
-with check (public.is_clinic_member(clinic_id));
+drop policy if exists "Chairs are readable by members" on public.chairs;
+drop policy if exists "Chairs are writable by clinical team" on public.chairs;
+drop policy if exists "Chairs are insertable by clinical team" on public.chairs;
+drop policy if exists "Chairs are updatable by clinical team" on public.chairs;
+drop policy if exists "Chairs are deletable by clinical team" on public.chairs;
+create policy "Chairs are readable by members"
+on public.chairs for select
+using (public.is_clinic_member(clinic_id));
+create policy "Chairs are insertable by clinical team"
+on public.chairs for insert
+with check (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+);
+create policy "Chairs are updatable by clinical team"
+on public.chairs for update
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+)
+with check (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+);
+create policy "Chairs are deletable by clinical team"
+on public.chairs for delete
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+);
 
 drop policy if exists "Appointments are managed by members" on public.appointments;
-create policy "Appointments are managed by members"
-on public.appointments for all
-using (public.is_clinic_member(clinic_id))
-with check (public.is_clinic_member(clinic_id));
+drop policy if exists "Appointments are readable by members" on public.appointments;
+drop policy if exists "Appointments are writable by clinical team" on public.appointments;
+drop policy if exists "Appointments are insertable by clinical team" on public.appointments;
+drop policy if exists "Appointments are updatable by clinical team" on public.appointments;
+drop policy if exists "Appointments are deletable by clinical team" on public.appointments;
+create policy "Appointments are readable by members"
+on public.appointments for select
+using (public.is_clinic_member(clinic_id));
+create policy "Appointments are insertable by clinical team"
+on public.appointments for insert
+with check (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+);
+create policy "Appointments are updatable by clinical team"
+on public.appointments for update
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+)
+with check (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+);
+create policy "Appointments are deletable by clinical team"
+on public.appointments for delete
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+);
+
+drop policy if exists "Appointment blocks are readable by members" on public.appointment_blocks;
+drop policy if exists "Appointment blocks are insertable by clinical team" on public.appointment_blocks;
+drop policy if exists "Appointment blocks are updatable by clinical team" on public.appointment_blocks;
+drop policy if exists "Appointment blocks are deletable by clinical team" on public.appointment_blocks;
+create policy "Appointment blocks are readable by members"
+on public.appointment_blocks for select
+using (public.is_clinic_member(clinic_id));
+create policy "Appointment blocks are insertable by clinical team"
+on public.appointment_blocks for insert
+with check (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+);
+create policy "Appointment blocks are updatable by clinical team"
+on public.appointment_blocks for update
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+)
+with check (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+);
+create policy "Appointment blocks are deletable by clinical team"
+on public.appointment_blocks for delete
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+);
+
+drop policy if exists "Appointment checkins are readable by members" on public.appointment_checkins;
+drop policy if exists "Appointment checkins are insertable by clinical team" on public.appointment_checkins;
+drop policy if exists "Appointment checkins are updatable by clinical team" on public.appointment_checkins;
+drop policy if exists "Appointment checkins are deletable by clinical team" on public.appointment_checkins;
+create policy "Appointment checkins are readable by members"
+on public.appointment_checkins for select
+using (public.is_clinic_member(clinic_id));
+create policy "Appointment checkins are insertable by clinical team"
+on public.appointment_checkins for insert
+with check (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+);
+create policy "Appointment checkins are updatable by clinical team"
+on public.appointment_checkins for update
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+)
+with check (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+);
+create policy "Appointment checkins are deletable by clinical team"
+on public.appointment_checkins for delete
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+);
+
+drop policy if exists "Waiting list entries are readable by members" on public.waiting_list;
+drop policy if exists "Waiting list entries are insertable by clinical team" on public.waiting_list;
+drop policy if exists "Waiting list entries are updatable by clinical team" on public.waiting_list;
+drop policy if exists "Waiting list entries are deletable by clinical team" on public.waiting_list;
+create policy "Waiting list entries are readable by members"
+on public.waiting_list for select
+using (public.is_clinic_member(clinic_id));
+create policy "Waiting list entries are insertable by clinical team"
+on public.waiting_list for insert
+with check (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+);
+create policy "Waiting list entries are updatable by clinical team"
+on public.waiting_list for update
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+)
+with check (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+);
+create policy "Waiting list entries are deletable by clinical team"
+on public.waiting_list for delete
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+);
+
+drop policy if exists "Patient records are readable by clinical team" on public.patient_records;
+drop policy if exists "Patient records are writable by clinical team" on public.patient_records;
+drop policy if exists "Patient records are insertable by clinical team" on public.patient_records;
+drop policy if exists "Patient records are updatable by clinical team" on public.patient_records;
+drop policy if exists "Patient records are deletable by clinical team" on public.patient_records;
+create policy "Patient records are readable by clinical team"
+on public.patient_records for select
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+);
+create policy "Patient records are insertable by clinical team"
+on public.patient_records for insert
+with check (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+);
+create policy "Patient records are updatable by clinical team"
+on public.patient_records for update
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+)
+with check (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+);
+create policy "Patient records are deletable by clinical team"
+on public.patient_records for delete
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+);
 
 drop policy if exists "Procedures are managed by members" on public.procedures;
-create policy "Procedures are managed by members"
-on public.procedures for all
-using (public.is_clinic_member(clinic_id))
-with check (public.is_clinic_member(clinic_id));
+drop policy if exists "Procedures are readable by members" on public.procedures;
+drop policy if exists "Procedures are writable by clinical team" on public.procedures;
+drop policy if exists "Procedures are insertable by clinical team" on public.procedures;
+drop policy if exists "Procedures are updatable by clinical team" on public.procedures;
+drop policy if exists "Procedures are deletable by clinical team" on public.procedures;
+create policy "Procedures are readable by members"
+on public.procedures for select
+using (public.is_clinic_member(clinic_id));
+create policy "Procedures are insertable by clinical team"
+on public.procedures for insert
+with check (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+);
+create policy "Procedures are updatable by clinical team"
+on public.procedures for update
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+)
+with check (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+);
+create policy "Procedures are deletable by clinical team"
+on public.procedures for delete
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+);
 
 drop policy if exists "Appointment procedures are managed by members" on public.appointment_procedures;
-create policy "Appointment procedures are managed by members"
-on public.appointment_procedures for all
-using (public.is_clinic_member(clinic_id))
-with check (public.is_clinic_member(clinic_id));
+drop policy if exists "Appointment procedures are readable by members" on public.appointment_procedures;
+drop policy if exists "Appointment procedures are writable by clinical team" on public.appointment_procedures;
+drop policy if exists "Appointment procedures are insertable by clinical team" on public.appointment_procedures;
+drop policy if exists "Appointment procedures are updatable by clinical team" on public.appointment_procedures;
+drop policy if exists "Appointment procedures are deletable by clinical team" on public.appointment_procedures;
+create policy "Appointment procedures are readable by members"
+on public.appointment_procedures for select
+using (public.is_clinic_member(clinic_id));
+create policy "Appointment procedures are insertable by clinical team"
+on public.appointment_procedures for insert
+with check (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+);
+create policy "Appointment procedures are updatable by clinical team"
+on public.appointment_procedures for update
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+)
+with check (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+);
+create policy "Appointment procedures are deletable by clinical team"
+on public.appointment_procedures for delete
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+);
 
 drop policy if exists "Invoices are managed by members" on public.invoices;
-create policy "Invoices are managed by members"
-on public.invoices for all
-using (public.is_clinic_member(clinic_id))
-with check (public.is_clinic_member(clinic_id));
+drop policy if exists "Invoices are readable by finance team" on public.invoices;
+drop policy if exists "Invoices are writable by finance managers" on public.invoices;
+drop policy if exists "Invoices are insertable by finance managers" on public.invoices;
+drop policy if exists "Invoices are updatable by finance managers" on public.invoices;
+drop policy if exists "Invoices are deletable by finance managers" on public.invoices;
+create policy "Invoices are readable by finance team"
+on public.invoices for select
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+);
+create policy "Invoices are insertable by finance managers"
+on public.invoices for insert
+with check (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin']::public.member_role[]
+  )
+);
+create policy "Invoices are updatable by finance managers"
+on public.invoices for update
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin']::public.member_role[]
+  )
+)
+with check (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin']::public.member_role[]
+  )
+);
+create policy "Invoices are deletable by finance managers"
+on public.invoices for delete
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin']::public.member_role[]
+  )
+);
 
 drop policy if exists "Payments are managed by members" on public.payments;
-create policy "Payments are managed by members"
-on public.payments for all
-using (public.is_clinic_member(clinic_id))
-with check (public.is_clinic_member(clinic_id));
+drop policy if exists "Payments are readable by finance team" on public.payments;
+drop policy if exists "Payments are writable by finance managers" on public.payments;
+drop policy if exists "Payments are insertable by finance managers" on public.payments;
+drop policy if exists "Payments are updatable by finance managers" on public.payments;
+drop policy if exists "Payments are deletable by finance managers" on public.payments;
+create policy "Payments are readable by finance team"
+on public.payments for select
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+);
+create policy "Payments are insertable by finance managers"
+on public.payments for insert
+with check (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin']::public.member_role[]
+  )
+);
+create policy "Payments are updatable by finance managers"
+on public.payments for update
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin']::public.member_role[]
+  )
+)
+with check (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin']::public.member_role[]
+  )
+);
+create policy "Payments are deletable by finance managers"
+on public.payments for delete
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin']::public.member_role[]
+  )
+);
 
 drop policy if exists "Revenue entries are managed by members" on public.revenue_entries;
-create policy "Revenue entries are managed by members"
-on public.revenue_entries for all
-using (public.is_clinic_member(clinic_id))
-with check (public.is_clinic_member(clinic_id));
+drop policy if exists "Revenue entries are readable by finance team" on public.revenue_entries;
+drop policy if exists "Revenue entries are writable by finance managers" on public.revenue_entries;
+drop policy if exists "Revenue entries are insertable by finance managers" on public.revenue_entries;
+drop policy if exists "Revenue entries are updatable by finance managers" on public.revenue_entries;
+drop policy if exists "Revenue entries are deletable by finance managers" on public.revenue_entries;
+create policy "Revenue entries are readable by finance team"
+on public.revenue_entries for select
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+);
+create policy "Revenue entries are insertable by finance managers"
+on public.revenue_entries for insert
+with check (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin']::public.member_role[]
+  )
+);
+create policy "Revenue entries are updatable by finance managers"
+on public.revenue_entries for update
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin']::public.member_role[]
+  )
+)
+with check (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin']::public.member_role[]
+  )
+);
+create policy "Revenue entries are deletable by finance managers"
+on public.revenue_entries for delete
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin']::public.member_role[]
+  )
+);
 
 drop policy if exists "Expenses are managed by members" on public.expenses;
-create policy "Expenses are managed by members"
-on public.expenses for all
-using (public.is_clinic_member(clinic_id))
-with check (public.is_clinic_member(clinic_id));
+drop policy if exists "Expenses are readable by finance team" on public.expenses;
+drop policy if exists "Expenses are writable by finance managers" on public.expenses;
+drop policy if exists "Expenses are insertable by finance managers" on public.expenses;
+drop policy if exists "Expenses are updatable by finance managers" on public.expenses;
+drop policy if exists "Expenses are deletable by finance managers" on public.expenses;
+create policy "Expenses are readable by finance team"
+on public.expenses for select
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+);
+create policy "Expenses are insertable by finance managers"
+on public.expenses for insert
+with check (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin']::public.member_role[]
+  )
+);
+create policy "Expenses are updatable by finance managers"
+on public.expenses for update
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin']::public.member_role[]
+  )
+)
+with check (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin']::public.member_role[]
+  )
+);
+create policy "Expenses are deletable by finance managers"
+on public.expenses for delete
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin']::public.member_role[]
+  )
+);
 
 drop policy if exists "Budgets are managed by members" on public.budgets;
-create policy "Budgets are managed by members"
-on public.budgets for all
-using (public.is_clinic_member(clinic_id))
-with check (public.is_clinic_member(clinic_id));
+drop policy if exists "Budgets are readable by finance team" on public.budgets;
+drop policy if exists "Budgets are writable by finance managers" on public.budgets;
+drop policy if exists "Budgets are insertable by finance managers" on public.budgets;
+drop policy if exists "Budgets are updatable by finance managers" on public.budgets;
+drop policy if exists "Budgets are deletable by finance managers" on public.budgets;
+create policy "Budgets are readable by finance team"
+on public.budgets for select
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','dentist','assistant']::public.member_role[]
+  )
+);
+create policy "Budgets are insertable by finance managers"
+on public.budgets for insert
+with check (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin']::public.member_role[]
+  )
+);
+create policy "Budgets are updatable by finance managers"
+on public.budgets for update
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin']::public.member_role[]
+  )
+)
+with check (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin']::public.member_role[]
+  )
+);
+create policy "Budgets are deletable by finance managers"
+on public.budgets for delete
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin']::public.member_role[]
+  )
+);
 
 drop policy if exists "Inventory items are managed by members" on public.inventory_items;
-create policy "Inventory items are managed by members"
-on public.inventory_items for all
-using (public.is_clinic_member(clinic_id))
-with check (public.is_clinic_member(clinic_id));
+drop policy if exists "Inventory items are readable by members" on public.inventory_items;
+drop policy if exists "Inventory items are writable by inventory team" on public.inventory_items;
+drop policy if exists "Inventory items are insertable by inventory team" on public.inventory_items;
+drop policy if exists "Inventory items are updatable by inventory team" on public.inventory_items;
+drop policy if exists "Inventory items are deletable by inventory team" on public.inventory_items;
+create policy "Inventory items are readable by members"
+on public.inventory_items for select
+using (public.is_clinic_member(clinic_id));
+create policy "Inventory items are insertable by inventory team"
+on public.inventory_items for insert
+with check (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','assistant']::public.member_role[]
+  )
+);
+create policy "Inventory items are updatable by inventory team"
+on public.inventory_items for update
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','assistant']::public.member_role[]
+  )
+)
+with check (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','assistant']::public.member_role[]
+  )
+);
+create policy "Inventory items are deletable by inventory team"
+on public.inventory_items for delete
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','assistant']::public.member_role[]
+  )
+);
 
 drop policy if exists "Inventory movements are managed by members" on public.inventory_movements;
-create policy "Inventory movements are managed by members"
-on public.inventory_movements for all
-using (public.is_clinic_member(clinic_id))
-with check (public.is_clinic_member(clinic_id));
+drop policy if exists "Inventory movements are readable by members" on public.inventory_movements;
+drop policy if exists "Inventory movements are writable by inventory team" on public.inventory_movements;
+drop policy if exists "Inventory movements are insertable by inventory team" on public.inventory_movements;
+drop policy if exists "Inventory movements are updatable by inventory team" on public.inventory_movements;
+drop policy if exists "Inventory movements are deletable by inventory team" on public.inventory_movements;
+create policy "Inventory movements are readable by members"
+on public.inventory_movements for select
+using (public.is_clinic_member(clinic_id));
+create policy "Inventory movements are insertable by inventory team"
+on public.inventory_movements for insert
+with check (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','assistant']::public.member_role[]
+  )
+);
+create policy "Inventory movements are updatable by inventory team"
+on public.inventory_movements for update
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','assistant']::public.member_role[]
+  )
+)
+with check (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','assistant']::public.member_role[]
+  )
+);
+create policy "Inventory movements are deletable by inventory team"
+on public.inventory_movements for delete
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin','assistant']::public.member_role[]
+  )
+);
 
 drop policy if exists "Notifications are viewable by members" on public.notifications;
 create policy "Notifications are viewable by members"
@@ -673,8 +1529,18 @@ with check (
 drop policy if exists "Google tokens are managed by owner" on public.google_calendar_tokens;
 create policy "Google tokens are managed by owner"
 on public.google_calendar_tokens for all
-using (public.is_clinic_owner(clinic_id))
-with check (public.is_clinic_owner(clinic_id));
+using (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin']::public.member_role[]
+  )
+)
+with check (
+  public.has_clinic_role(
+    clinic_id,
+    array['owner','admin']::public.member_role[]
+  )
+);
 
 drop view if exists public.v_finance_monthly;
 create view public.v_finance_monthly as
