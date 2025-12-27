@@ -6,6 +6,7 @@ import { Badge } from "../ui/badge";
 import { Card } from "../ui/card";
 import { Progress } from "../ui/progress";
 import { SegmentedControl } from "../ui/segmented-control";
+import { useQueryState } from "../../hooks/useQueryState";
 
 type PeriodKey = "mes" | "trimestre" | "ano";
 type CategoryKey = "todos" | "estetica" | "clinica" | "orto";
@@ -71,8 +72,16 @@ export function ProceduresDistribution({
 }: {
   data?: ProceduresDistributionData;
 }) {
-  const [period, setPeriod] = React.useState<PeriodKey>("mes");
-  const [category, setCategory] = React.useState<CategoryKey>("todos");
+  const [period, setPeriod] = useQueryState<PeriodKey>(
+    "proceduresPeriod",
+    "mes",
+    ["mes", "trimestre", "ano"]
+  );
+  const [category, setCategory] = useQueryState<CategoryKey>(
+    "proceduresCategory",
+    "todos",
+    ["todos", "estetica", "clinica", "orto"]
+  );
 
   const scale = periodScale[period];
   const source = data?.data ?? procedureData;

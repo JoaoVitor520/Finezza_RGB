@@ -233,6 +233,19 @@ create table if not exists public.payments (
   constraint payments_amount_check check (amount > 0)
 );
 
+create table if not exists public.revenue_entries (
+  id uuid primary key default gen_random_uuid(),
+  clinic_id uuid not null references public.clinics on delete cascade,
+  description text not null,
+  category text,
+  amount numeric(10,2) not null,
+  received_at timestamptz not null default now(),
+  created_by uuid references auth.users on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint revenue_entries_amount_check check (amount > 0)
+);
+
 create table if not exists public.expenses (
   id uuid primary key default gen_random_uuid(),
   clinic_id uuid not null references public.clinics on delete cascade,
@@ -245,6 +258,18 @@ create table if not exists public.expenses (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint expenses_amount_check check (amount > 0)
+);
+
+create table if not exists public.budgets (
+  id uuid primary key default gen_random_uuid(),
+  clinic_id uuid not null references public.clinics on delete cascade,
+  category text not null,
+  monthly_limit numeric(10,2) not null default 0,
+  created_by uuid references auth.users on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (clinic_id, category),
+  constraint budgets_limit_check check (monthly_limit >= 0)
 );
 
 create table if not exists public.inventory_items (
@@ -305,8 +330,11 @@ create index if not exists appointments_patient_idx on public.appointments (pati
 create index if not exists procedures_clinic_idx on public.procedures (clinic_id);
 create index if not exists invoices_clinic_idx on public.invoices (clinic_id);
 create index if not exists payments_clinic_idx on public.payments (clinic_id);
+create index if not exists revenue_entries_clinic_idx on public.revenue_entries (clinic_id);
+create index if not exists revenue_entries_received_at_idx on public.revenue_entries (received_at);
 create index if not exists expenses_clinic_idx on public.expenses (clinic_id);
 create index if not exists expenses_paid_at_idx on public.expenses (paid_at);
+create index if not exists budgets_clinic_idx on public.budgets (clinic_id);
 create index if not exists inventory_items_clinic_idx on public.inventory_items (clinic_id);
 create index if not exists inventory_movements_item_idx on public.inventory_movements (item_id);
 create index if not exists notifications_clinic_idx on public.notifications (clinic_id);
@@ -362,9 +390,19 @@ create trigger set_updated_at_invoices
 before update on public.invoices
 for each row execute function public.set_updated_at();
 
+drop trigger if exists set_updated_at_revenue_entries on public.revenue_entries;
+create trigger set_updated_at_revenue_entries
+before update on public.revenue_entries
+for each row execute function public.set_updated_at();
+
 drop trigger if exists set_updated_at_expenses on public.expenses;
 create trigger set_updated_at_expenses
 before update on public.expenses
+for each row execute function public.set_updated_at();
+
+drop trigger if exists set_updated_at_budgets on public.budgets;
+create trigger set_updated_at_budgets
+before update on public.budgets
 for each row execute function public.set_updated_at();
 
 drop trigger if exists set_updated_at_google_calendar_tokens on public.google_calendar_tokens;
@@ -478,7 +516,9 @@ alter table public.procedures enable row level security;
 alter table public.appointment_procedures enable row level security;
 alter table public.invoices enable row level security;
 alter table public.payments enable row level security;
+alter table public.revenue_entries enable row level security;
 alter table public.expenses enable row level security;
+alter table public.budgets enable row level security;
 alter table public.inventory_items enable row level security;
 alter table public.inventory_movements enable row level security;
 alter table public.notifications enable row level security;
@@ -584,9 +624,21 @@ on public.payments for all
 using (public.is_clinic_member(clinic_id))
 with check (public.is_clinic_member(clinic_id));
 
+drop policy if exists "Revenue entries are managed by members" on public.revenue_entries;
+create policy "Revenue entries are managed by members"
+on public.revenue_entries for all
+using (public.is_clinic_member(clinic_id))
+with check (public.is_clinic_member(clinic_id));
+
 drop policy if exists "Expenses are managed by members" on public.expenses;
 create policy "Expenses are managed by members"
 on public.expenses for all
+using (public.is_clinic_member(clinic_id))
+with check (public.is_clinic_member(clinic_id));
+
+drop policy if exists "Budgets are managed by members" on public.budgets;
+create policy "Budgets are managed by members"
+on public.budgets for all
 using (public.is_clinic_member(clinic_id))
 with check (public.is_clinic_member(clinic_id));
 
@@ -623,3 +675,49 @@ create policy "Google tokens are managed by owner"
 on public.google_calendar_tokens for all
 using (public.is_clinic_owner(clinic_id))
 with check (public.is_clinic_owner(clinic_id));
+
+drop view if exists public.v_finance_monthly;
+create view public.v_finance_monthly as
+with revenue as (
+  select
+    clinic_id,
+    date_trunc('month', paid_at)::date as month,
+    sum(amount)::numeric(10,2) as total
+  from public.payments
+  group by clinic_id, date_trunc('month', paid_at)
+),
+manual_revenue as (
+  select
+    clinic_id,
+    date_trunc('month', received_at)::date as month,
+    sum(amount)::numeric(10,2) as total
+  from public.revenue_entries
+  group by clinic_id, date_trunc('month', received_at)
+),
+expenses as (
+  select
+    clinic_id,
+    date_trunc('month', paid_at)::date as month,
+    sum(amount)::numeric(10,2) as total
+  from public.expenses
+  group by clinic_id, date_trunc('month', paid_at)
+),
+revenue_union as (
+  select clinic_id, month, total from revenue
+  union all
+  select clinic_id, month, total from manual_revenue
+),
+revenue_totals as (
+  select clinic_id, month, sum(total)::numeric(10,2) as total
+  from revenue_union
+  group by clinic_id, month
+)
+select
+  coalesce(revenue_totals.clinic_id, expenses.clinic_id) as clinic_id,
+  coalesce(revenue_totals.month, expenses.month) as month,
+  coalesce(revenue_totals.total, 0)::numeric(10,2) as revenue,
+  coalesce(expenses.total, 0)::numeric(10,2) as expenses
+from revenue_totals
+full join expenses
+  on revenue_totals.clinic_id = expenses.clinic_id
+  and revenue_totals.month = expenses.month;

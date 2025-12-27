@@ -1,5 +1,5 @@
+import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "../../../../lib/supabase/admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,28 +27,43 @@ const formatTime = (value: Date | null) =>
     : "Dia todo";
 
 export async function GET(request: Request) {
-  if (!supabaseAdmin) {
-    return NextResponse.json(
-      { error: "Missing Supabase service role key." },
-      { status: 500 }
-    );
-  }
-
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   const calendarId = process.env.GOOGLE_CALENDAR_ID ?? "primary";
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  if (!clientId || !clientSecret) {
+  if (!clientId || !clientSecret || !supabaseUrl || !supabaseAnonKey) {
     return NextResponse.json(
-      { error: "Missing Google OAuth environment variables." },
+      { error: "Missing environment variables." },
       { status: 500 }
     );
   }
+
+  const authHeader = request.headers.get("authorization");
+  if (!authHeader) {
+    return NextResponse.json(
+      { error: "Missing authorization token." },
+      { status: 401 }
+    );
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+    global: {
+      headers: {
+        Authorization: authHeader,
+      },
+    },
+  });
 
   const url = new URL(request.url);
   const clinicSlug = url.searchParams.get("clinic") ?? DEFAULT_CLINIC_SLUG;
 
-  const { data: clinic, error: clinicError } = await supabaseAdmin
+  const { data: clinic, error: clinicError } = await supabase
     .from("clinics")
     .select("id")
     .eq("slug", clinicSlug)
@@ -61,7 +76,7 @@ export async function GET(request: Request) {
     );
   }
 
-  const { data: tokenRowRaw } = await supabaseAdmin
+  const { data: tokenRowRaw } = await supabase
     .from("google_calendar_tokens")
     .select("access_token, refresh_token, expires_at")
     .eq("clinic_id", clinic.id)
@@ -124,7 +139,7 @@ export async function GET(request: Request) {
       ? new Date(Date.now() + refreshed.expires_in * 1000).toISOString()
       : null;
 
-    await supabaseAdmin
+    await supabase
       .from("google_calendar_tokens")
       .update({
         access_token: refreshed.access_token,

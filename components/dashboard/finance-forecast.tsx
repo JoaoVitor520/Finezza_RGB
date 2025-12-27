@@ -7,6 +7,7 @@ import { Badge } from "../ui/badge";
 import { Card } from "../ui/card";
 import { SegmentedControl } from "../ui/segmented-control";
 import { cn } from "../../lib/utils";
+import { useQueryState } from "../../hooks/useQueryState";
 
 type RangeKey = "6m" | "12m";
 type ModeKey = "previsto" | "real";
@@ -93,8 +94,16 @@ type FinanceForecastData = {
 };
 
 export function FinanceForecast({ data }: { data?: FinanceForecastData }) {
-  const [range, setRange] = React.useState<RangeKey>("6m");
-  const [mode, setMode] = React.useState<ModeKey>("previsto");
+  const [range, setRange] = useQueryState<RangeKey>(
+    "financeRange",
+    "6m",
+    ["6m", "12m"]
+  );
+  const [mode, setMode] = useQueryState<ModeKey>(
+    "financeMode",
+    "previsto",
+    ["previsto", "real"]
+  );
   const [activeIndex, setActiveIndex] = React.useState<number | null>(null);
 
   const selected = (data?.chartData ?? chartData)[range];

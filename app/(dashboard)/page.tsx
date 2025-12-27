@@ -18,6 +18,8 @@ import { PatientsAnalytics } from "../../components/dashboard/patients-analytics
 import { ProceduresDistribution } from "../../components/dashboard/procedures-distribution";
 import { QuickActions } from "../../components/dashboard/quick-actions";
 import { RevenuePulse } from "../../components/dashboard/revenue-pulse";
+import { useActiveClinic } from "../../hooks/useActiveClinic";
+import { useAuthSession } from "../../hooks/useAuthSession";
 import { useGoogleCalendar } from "../../hooks/useGoogleCalendar";
 import { useDashboardData } from "../../hooks/useDashboardData";
 
@@ -82,7 +84,14 @@ const defaultNotifications: NotificationItem[] = [
 ];
 
 export default function DashboardPage() {
-  const { data, isLoading, refresh: refreshDashboard } = useDashboardData();
+  const { session } = useAuthSession();
+  const { activeClinic } = useActiveClinic();
+  const accessToken = session?.access_token;
+  const clinicSlug = activeClinic?.slug;
+  const { data, isLoading, refresh: refreshDashboard } = useDashboardData(
+    clinicSlug,
+    accessToken
+  );
   const {
     isConnected,
     isConnecting,
@@ -92,7 +101,7 @@ export default function DashboardPage() {
     nextSyncAt,
     connect,
     refresh: refreshGoogle,
-  } = useGoogleCalendar();
+  } = useGoogleCalendar(accessToken, clinicSlug);
   const lastConflictRef = React.useRef<string | null>(null);
   const conflictEvent = lastConflict ?? data?.agenda.lastConflict ?? null;
 
@@ -164,14 +173,14 @@ export default function DashboardPage() {
         <QuickActions />
       </section>
 
-      <section className="grid gap-6 lg:grid-cols-3">
+      <section className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
         {metrics.map((metric, index) => (
           <MetricCard key={metric.label} {...metric} delay={index * 0.08} />
         ))}
       </section>
 
-      <section className="grid gap-6 lg:grid-cols-3">
-        <motion.div layout className="space-y-6 lg:col-span-2">
+      <section className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+        <motion.div layout className="space-y-6 md:col-span-2 lg:col-span-2">
           <AgendaWidget
             events={agendaEvents}
             isConnected={agendaIsConnected}
@@ -182,7 +191,7 @@ export default function DashboardPage() {
           />
           <RevenuePulse />
         </motion.div>
-        <motion.div layout className="space-y-6 lg:col-span-1">
+        <motion.div layout className="space-y-6 md:col-span-1 lg:col-span-1">
           <NotificationsList items={notifications} />
         </motion.div>
       </section>

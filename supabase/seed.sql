@@ -54,7 +54,9 @@ begin
       updated_at = now();
 
   delete from public.payments where clinic_id = v_clinic_id;
+  delete from public.revenue_entries where clinic_id = v_clinic_id;
   delete from public.expenses where clinic_id = v_clinic_id;
+  delete from public.budgets where clinic_id = v_clinic_id;
   delete from public.invoices where clinic_id = v_clinic_id;
   delete from public.appointment_procedures where clinic_id = v_clinic_id;
   delete from public.appointments where clinic_id = v_clinic_id;
@@ -89,6 +91,22 @@ begin
   set category = excluded.category,
       price_base = excluded.price_base,
       duration_min = excluded.duration_min,
+      updated_at = now();
+
+  insert into public.budgets (
+    clinic_id,
+    category,
+    monthly_limit,
+    created_by
+  )
+  values
+    (v_clinic_id, 'fixo', 6000.00, v_owner_id),
+    (v_clinic_id, 'pessoal', 12000.00, v_owner_id),
+    (v_clinic_id, 'insumos', 3500.00, v_owner_id),
+    (v_clinic_id, 'marketing', 1500.00, v_owner_id),
+    (v_clinic_id, 'operacional', 1200.00, v_owner_id)
+  on conflict (clinic_id, category) do update
+  set monthly_limit = excluded.monthly_limit,
       updated_at = now();
 
   insert into public.patients (
@@ -341,6 +359,18 @@ begin
 
   for v_month_offset in 0..11 loop
     v_month_start := (date_trunc('month', now())::date - ((11 - v_month_offset) * interval '1 month'));
+
+    insert into public.revenue_entries (
+      clinic_id,
+      description,
+      category,
+      amount,
+      received_at,
+      created_by
+    )
+    values
+      (v_clinic_id, 'Plano premium', 'assinatura', round((2200 + random() * 300)::numeric, 2), v_month_start + interval '3 days', v_owner_id),
+      (v_clinic_id, 'Venda de kit higiene', 'loja', round((420 + random() * 180)::numeric, 2), v_month_start + interval '14 days', v_owner_id);
 
     insert into public.expenses (
       clinic_id,

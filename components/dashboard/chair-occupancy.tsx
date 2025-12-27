@@ -6,6 +6,7 @@ import { Activity, Clock3, Sofa } from "lucide-react";
 import { Badge } from "../ui/badge";
 import { Card } from "../ui/card";
 import { SegmentedControl } from "../ui/segmented-control";
+import { useQueryState } from "../../hooks/useQueryState";
 
 type RangeKey = "6m" | "12m";
 type ShiftKey = "dia" | "manha" | "tarde" | "noite";
@@ -66,8 +67,16 @@ type ChairOccupancyData = {
 };
 
 export function ChairOccupancy({ data }: { data?: ChairOccupancyData }) {
-  const [range, setRange] = React.useState<RangeKey>("6m");
-  const [shift, setShift] = React.useState<ShiftKey>("dia");
+  const [range, setRange] = useQueryState<RangeKey>(
+    "occupancyRange",
+    "6m",
+    ["6m", "12m"]
+  );
+  const [shift, setShift] = useQueryState<ShiftKey>(
+    "occupancyShift",
+    "dia",
+    ["dia", "manha", "tarde", "noite"]
+  );
   const [activeIndex, setActiveIndex] = React.useState<number | null>(null);
 
   const selected = (data?.chartData ?? chartData)[range];

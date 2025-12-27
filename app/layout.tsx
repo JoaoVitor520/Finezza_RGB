@@ -2,8 +2,6 @@ import "./globals.css";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { Sora } from "next/font/google";
-import { Header } from "../components/layout/header";
-import { Sidebar } from "../components/layout/sidebar";
 import { Providers } from "../components/providers";
 
 const sora = Sora({
@@ -31,15 +29,7 @@ export default function RootLayout({
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(14,165,233,0.12),transparent_50%)]" />
             <div className="absolute inset-0 bg-[linear-gradient(120deg,rgba(15,23,42,0.02)_0%,rgba(15,23,42,0.06)_40%,transparent_100%)]" />
           </div>
-          <div className="flex min-h-screen">
-            <Sidebar />
-            <div className="flex-1">
-              <div className="mx-auto flex w-full max-w-7xl flex-col px-4 py-6 sm:px-6 lg:px-10">
-                <Header />
-                <main className="mt-6">{children}</main>
-              </div>
-            </div>
-          </div>
+          {children}
         </Providers>
       </body>
     </html>

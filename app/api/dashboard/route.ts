@@ -1,5 +1,5 @@
+import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "../../../lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
@@ -59,17 +59,40 @@ const formatRelativeTime = (value: Date, now: Date) => {
 };
 
 export async function GET(request: Request) {
-  if (!supabaseAdmin) {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const authHeader = request.headers.get("authorization");
+
+  if (!supabaseUrl || !supabaseAnonKey) {
     return NextResponse.json(
-      { error: "Missing Supabase service role key." },
+      { error: "Missing Supabase environment variables." },
       { status: 500 }
     );
   }
 
+  if (!authHeader) {
+    return NextResponse.json(
+      { error: "Missing authorization token." },
+      { status: 401 }
+    );
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+    global: {
+      headers: {
+        Authorization: authHeader,
+      },
+    },
+  });
+
   const url = new URL(request.url);
   const slug = url.searchParams.get("clinic") ?? DEFAULT_CLINIC_SLUG;
 
-  const { data: clinic, error: clinicError } = await supabaseAdmin
+  const { data: clinic, error: clinicError } = await supabase
     .from("clinics")
     .select("id, timezone")
     .eq("slug", slug)
@@ -95,52 +118,64 @@ export async function GET(request: Request) {
     appointmentsResult,
     paymentsResult,
     expensesResult,
+    revenueEntriesResult,
+    financeMonthlyResult,
     proceduresResult,
     appointmentProceduresResult,
     notificationsResult,
     googleTokensResult,
     chairsResult,
   ] = await Promise.all([
-    supabaseAdmin
+    supabase
       .from("patients")
       .select("id, full_name, birth_date, gender, created_at")
       .eq("clinic_id", clinic.id),
-    supabaseAdmin
+    supabase
       .from("appointments")
       .select("id, start_at, end_at, status, patient_id, chair_id")
       .eq("clinic_id", clinic.id)
       .gte("start_at", rangeStart.toISOString())
       .lte("start_at", rangeEnd.toISOString()),
-    supabaseAdmin
+    supabase
       .from("payments")
       .select("amount, paid_at")
       .eq("clinic_id", clinic.id)
       .gte("paid_at", rangeStart.toISOString()),
-    supabaseAdmin
+    supabase
       .from("expenses")
       .select("amount, paid_at")
       .eq("clinic_id", clinic.id)
       .gte("paid_at", rangeStart.toISOString()),
-    supabaseAdmin
+    supabase
+      .from("revenue_entries")
+      .select("amount, received_at")
+      .eq("clinic_id", clinic.id)
+      .gte("received_at", rangeStart.toISOString()),
+    supabase
+      .from("v_finance_monthly")
+      .select("month, revenue, expenses")
+      .eq("clinic_id", clinic.id)
+      .gte("month", rangeStart.toISOString()),
+    supabase
       .from("procedures")
       .select("id, name, category")
       .eq("clinic_id", clinic.id),
-    supabaseAdmin
+    supabase
       .from("appointment_procedures")
       .select("appointment_id, procedure_id, quantity")
       .eq("clinic_id", clinic.id),
-    supabaseAdmin
+    supabase
       .from("notifications")
       .select("id, title, body, severity, created_at")
       .eq("clinic_id", clinic.id)
       .order("created_at", { ascending: false })
       .limit(6),
-    supabaseAdmin
+    supabase
       .from("google_calendar_tokens")
       .select("id, updated_at, expires_at")
       .eq("clinic_id", clinic.id)
       .maybeSingle(),
-    supabaseAdmin.from("chairs").select("id, status").eq("clinic_id", clinic.id),
+    supabase.from("chairs").select("id, status").eq("clinic_id", clinic.id),
   ]);
 
   if (
@@ -148,6 +183,7 @@ export async function GET(request: Request) {
     appointmentsResult.error ||
     paymentsResult.error ||
     expensesResult.error ||
+    revenueEntriesResult.error ||
     proceduresResult.error ||
     appointmentProceduresResult.error ||
     notificationsResult.error ||
@@ -164,6 +200,8 @@ export async function GET(request: Request) {
   const appointments = appointmentsResult.data ?? [];
   const payments = paymentsResult.data ?? [];
   const expenses = expensesResult.data ?? [];
+  const revenueEntries = revenueEntriesResult.data ?? [];
+  const financeMonthly = financeMonthlyResult.data ?? [];
   const procedures = proceduresResult.data ?? [];
   const appointmentProcedures = appointmentProceduresResult.data ?? [];
   const notifications = notificationsResult.data ?? [];
@@ -259,23 +297,42 @@ export async function GET(request: Request) {
     if (index === undefined) return;
     revenueByMonth[index] += Number(payment.amount ?? 0);
   });
-
-  let expenseByMonth = Array.from({ length: monthCount }, () => 0);
-  expenses.forEach((expense) => {
-    if (!expense.paid_at) return;
-    const paidAt = new Date(expense.paid_at);
-    const key = toMonthKey(paidAt);
+  revenueEntries.forEach((entry) => {
+    if (!entry.received_at) return;
+    const receivedAt = new Date(entry.received_at);
+    const key = toMonthKey(receivedAt);
     const index = monthIndex.get(key);
     if (index === undefined) return;
-    expenseByMonth[index] += Number(expense.amount ?? 0);
+    revenueByMonth[index] += Number(entry.amount ?? 0);
   });
 
-  if (expenses.length === 0) {
-    // TODO: Replace with real expense records once available.
-    expenseByMonth = revenueByMonth.map((value, index) => {
-      const factor = 0.55 + (index % 3) * 0.02;
-      return Math.round(value * factor);
+  let expenseByMonth = Array.from({ length: monthCount }, () => 0);
+  if (financeMonthly.length > 0) {
+    financeMonthly.forEach((row) => {
+      const month = new Date(row.month);
+      const key = toMonthKey(month);
+      const index = monthIndex.get(key);
+      if (index === undefined) return;
+      revenueByMonth[index] = Number(row.revenue ?? 0);
+      expenseByMonth[index] = Number(row.expenses ?? 0);
     });
+  } else {
+    expenses.forEach((expense) => {
+      if (!expense.paid_at) return;
+      const paidAt = new Date(expense.paid_at);
+      const key = toMonthKey(paidAt);
+      const index = monthIndex.get(key);
+      if (index === undefined) return;
+      expenseByMonth[index] += Number(expense.amount ?? 0);
+    });
+
+    if (expenses.length === 0) {
+      // TODO: Replace with real expense records once available.
+      expenseByMonth = revenueByMonth.map((value, index) => {
+        const factor = 0.55 + (index % 3) * 0.02;
+        return Math.round(value * factor);
+      });
+    }
   }
 
   const saldoByMonth = revenueByMonth.map(
@@ -557,16 +614,24 @@ export async function GET(request: Request) {
   const currentStart = new Date(now.getTime() - monthMs);
   const previousStart = new Date(now.getTime() - monthMs * 2);
 
-  const sumPayments = (start: Date, end: Date) =>
-    payments.reduce((sum, payment) => {
+  const sumRevenue = (start: Date, end: Date) => {
+    const paymentTotal = payments.reduce((sum, payment) => {
       if (!payment.paid_at) return sum;
       const paidAt = new Date(payment.paid_at);
       if (paidAt < start || paidAt >= end) return sum;
       return sum + Number(payment.amount ?? 0);
     }, 0);
+    const manualTotal = revenueEntries.reduce((sum, entry) => {
+      if (!entry.received_at) return sum;
+      const receivedAt = new Date(entry.received_at);
+      if (receivedAt < start || receivedAt >= end) return sum;
+      return sum + Number(entry.amount ?? 0);
+    }, 0);
+    return paymentTotal + manualTotal;
+  };
 
-  const currentRevenue = sumPayments(currentStart, now);
-  const previousRevenue = sumPayments(previousStart, currentStart);
+  const currentRevenue = sumRevenue(currentStart, now);
+  const previousRevenue = sumRevenue(previousStart, currentStart);
 
   const paymentsInCurrent = payments.filter((payment) => {
     if (!payment.paid_at) return false;
@@ -667,12 +732,13 @@ export async function GET(request: Request) {
     });
   }
 
-  return NextResponse.json({
-    metrics: {
-      revenue: {
-        value: Math.round(currentRevenue),
-        trend: formatTrend(currentRevenue, previousRevenue, "vs mes anterior"),
-      },
+  return NextResponse.json(
+    {
+      metrics: {
+        revenue: {
+          value: Math.round(currentRevenue),
+          trend: formatTrend(currentRevenue, previousRevenue, "vs mes anterior"),
+        },
       patientsToday: {
         value: patientsToday.size,
         trend: formatTrend(
@@ -737,6 +803,12 @@ export async function GET(request: Request) {
           chairs: chairs.length,
         },
       },
+      },
     },
-  });
+    {
+      headers: {
+        "Cache-Control": "private, max-age=60",
+      },
+    }
+  );
 }

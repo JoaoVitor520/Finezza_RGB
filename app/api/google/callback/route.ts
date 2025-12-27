@@ -54,6 +54,7 @@ export async function GET(request: Request) {
   const storedState = cookieStore.get("google_oauth_state")?.value;
   const clinicSlug =
     cookieStore.get("google_oauth_clinic")?.value ?? DEFAULT_CLINIC_SLUG;
+  const oauthUserId = cookieStore.get("google_oauth_user")?.value ?? null;
 
   if (!storedState || storedState !== state) {
     return NextResponse.json(
@@ -64,6 +65,7 @@ export async function GET(request: Request) {
 
   cookieStore.set("google_oauth_state", "", { maxAge: 0 });
   cookieStore.set("google_oauth_clinic", "", { maxAge: 0 });
+  cookieStore.set("google_oauth_user", "", { maxAge: 0 });
 
   const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
@@ -115,7 +117,7 @@ export async function GET(request: Request) {
   await supabaseAdmin.from("google_calendar_tokens").upsert(
     {
       clinic_id: clinic.id,
-      user_id: clinic.owner_id,
+      user_id: oauthUserId ?? clinic.owner_id,
       access_token: tokenData.access_token,
       refresh_token: refreshToken,
       scope: tokenData.scope ?? null,

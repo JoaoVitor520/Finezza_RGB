@@ -8,6 +8,7 @@ import { Card } from "../ui/card";
 import { Progress } from "../ui/progress";
 import { SegmentedControl } from "../ui/segmented-control";
 import { cn } from "../../lib/utils";
+import { useQueryState } from "../../hooks/useQueryState";
 
 type RangeKey = "6m" | "12m";
 type MetricKey = "total" | "new" | "return";
@@ -118,9 +119,21 @@ type PatientsAnalyticsData = {
 };
 
 export function PatientsAnalytics({ data }: { data?: PatientsAnalyticsData }) {
-  const [range, setRange] = React.useState<RangeKey>("6m");
-  const [metric, setMetric] = React.useState<MetricKey>("total");
-  const [segment, setSegment] = React.useState<SegmentKey>("geral");
+  const [range, setRange] = useQueryState<RangeKey>(
+    "patientsRange",
+    "6m",
+    ["6m", "12m"]
+  );
+  const [metric, setMetric] = useQueryState<MetricKey>(
+    "patientsMetric",
+    "total",
+    ["total", "new", "return"]
+  );
+  const [segment, setSegment] = useQueryState<SegmentKey>(
+    "patientsSegment",
+    "geral",
+    ["geral", "premium", "corporativo"]
+  );
   const [activeIndex, setActiveIndex] = React.useState<number | null>(null);
 
   const selected = (data?.chartData ?? chartData)[range];

@@ -30,7 +30,10 @@ type UseGoogleCalendarResult = {
   reset: () => void;
 };
 
-export function useGoogleCalendar(): UseGoogleCalendarResult {
+export function useGoogleCalendar(
+  accessToken?: string,
+  clinicSlug?: string
+): UseGoogleCalendarResult {
   const [isConnecting, setIsConnecting] = React.useState(false);
   const [isConnected, setIsConnected] = React.useState(false);
   const [events, setEvents] = React.useState<CalendarEvent[]>([]);
@@ -42,7 +45,25 @@ export function useGoogleCalendar(): UseGoogleCalendarResult {
 
   const refresh = React.useCallback(async () => {
     try {
-      const response = await fetch("/api/google/events", { cache: "no-store" });
+      if (!accessToken) {
+        setIsConnected(false);
+        setEvents([]);
+        setLastConflict(null);
+        setLastSyncAt(null);
+        setNextSyncAt(null);
+        return;
+      }
+      const url = clinicSlug
+        ? `/api/google/events?clinic=${encodeURIComponent(clinicSlug)}`
+        : "/api/google/events";
+      const response = await fetch(url, {
+        cache: "no-store",
+        headers: accessToken
+          ? {
+              Authorization: `Bearer ${accessToken}`,
+            }
+          : undefined,
+      });
       if (!response.ok) {
         setIsConnected(false);
         setEvents([]);
@@ -65,16 +86,41 @@ export function useGoogleCalendar(): UseGoogleCalendarResult {
       setLastSyncAt(null);
       setNextSyncAt(null);
     }
-  }, []);
+  }, [accessToken, clinicSlug]);
 
   const connect = React.useCallback(async () => {
     if (isConnecting) return;
     setIsConnecting(true);
 
-    if (typeof window !== "undefined") {
-      window.location.href = "/api/google/connect";
+    if (!accessToken || !clinicSlug) {
+      setIsConnecting(false);
+      return;
     }
-  }, [isConnecting]);
+
+    try {
+      const url = clinicSlug
+        ? `/api/google/connect?clinic=${encodeURIComponent(clinicSlug)}`
+        : "/api/google/connect";
+      const response = await fetch(url, {
+        method: "POST",
+        headers: accessToken
+          ? {
+              Authorization: `Bearer ${accessToken}`,
+            }
+          : undefined,
+      });
+      if (!response.ok) {
+        setIsConnecting(false);
+        return;
+      }
+      const payload = (await response.json()) as { url: string };
+      if (typeof window !== "undefined") {
+        window.location.href = payload.url;
+      }
+    } catch {
+      setIsConnecting(false);
+    }
+  }, [accessToken, clinicSlug, isConnecting]);
 
   React.useEffect(() => {
     void refresh();

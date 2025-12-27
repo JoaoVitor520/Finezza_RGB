@@ -98,7 +98,10 @@ type UseDashboardDataResult = {
   refresh: () => Promise<void>;
 };
 
-export function useDashboardData(clinicSlug?: string): UseDashboardDataResult {
+export function useDashboardData(
+  clinicSlug?: string,
+  accessToken?: string
+): UseDashboardDataResult {
   const [data, setData] = React.useState<DashboardData | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -106,10 +109,23 @@ export function useDashboardData(clinicSlug?: string): UseDashboardDataResult {
   const fetchData = React.useCallback(async () => {
     setIsLoading(true);
     try {
+      if (!accessToken) {
+        setData(null);
+        setError(null);
+        setIsLoading(false);
+        return;
+      }
       const url = clinicSlug
         ? `/api/dashboard?clinic=${encodeURIComponent(clinicSlug)}`
         : "/api/dashboard";
-      const response = await fetch(url, { cache: "no-store" });
+      const response = await fetch(url, {
+        cache: "no-store",
+        headers: accessToken
+          ? {
+              Authorization: `Bearer ${accessToken}`,
+            }
+          : undefined,
+      });
       if (!response.ok) {
         const message = await response.text();
         throw new Error(message || "Failed to load dashboard data.");
@@ -125,7 +141,7 @@ export function useDashboardData(clinicSlug?: string): UseDashboardDataResult {
     } finally {
       setIsLoading(false);
     }
-  }, [clinicSlug]);
+  }, [accessToken, clinicSlug]);
 
   React.useEffect(() => {
     void fetchData();

@@ -7,6 +7,7 @@ import { Badge } from "../ui/badge";
 import { Card } from "../ui/card";
 import { SegmentedControl } from "../ui/segmented-control";
 import { cn } from "../../lib/utils";
+import { useQueryState } from "../../hooks/useQueryState";
 
 type RangeKey = "6m" | "12m";
 type SegmentKey = "todos" | "premium" | "particular";
@@ -69,8 +70,16 @@ export function ConsultationsAnalytics({
 }: {
   data?: ConsultationsAnalyticsData;
 }) {
-  const [range, setRange] = React.useState<RangeKey>("6m");
-  const [segment, setSegment] = React.useState<SegmentKey>("todos");
+  const [range, setRange] = useQueryState<RangeKey>(
+    "consultationsRange",
+    "6m",
+    ["6m", "12m"]
+  );
+  const [segment, setSegment] = useQueryState<SegmentKey>(
+    "consultationsSegment",
+    "todos",
+    ["todos", "premium", "particular"]
+  );
   const [activeIndex, setActiveIndex] = React.useState<number | null>(null);
 
   const selected = (data?.chartData ?? chartData)[range];
